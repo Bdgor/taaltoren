@@ -61,15 +61,20 @@
         let currentIndex = 0;
 
         async function loadWords() {
-            const response = await fetch("words.csv");
-            const text = await response.text();
-            const lines = text.trim().split("\n");
-            words = lines.map(line => {
-                const [ua, correct, wrong1, wrong2] = line.split(",");
-                return { ua, correct, wrong: [wrong1, wrong2] };
-            });
-            shuffle(words);
-            nextQuestion();
+            try {
+                const response = await fetch("/words.csv");
+                const text = await response.text();
+                const lines = text.trim().split("\n");
+                words = lines.map(line => {
+                    const [ua, correct, wrong1, wrong2] = line.split(",");
+                    return { ua, correct, wrong: [wrong1, wrong2] };
+                });
+                shuffle(words);
+                nextQuestion();
+            } catch (err) {
+                document.getElementById("question").innerText = "Не вдалося завантажити слова.";
+                console.error("Помилка завантаження words.csv:", err);
+            }
         }
 
         let tower = [];
