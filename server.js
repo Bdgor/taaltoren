@@ -1,9 +1,10 @@
 const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
-const cron = require("node-cron");
+const cors = require("cors");
 
 const app = express();
+app.use(cors());
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
@@ -12,19 +13,37 @@ const io = new Server(server, {
   }
 });
 
-let towers = {};
-let scores = {};
-let timer = 900;
+let towers = {};   // вежі по гравцю
+let scores = {};   // рахунок по гравцю
+let timer = 900;   // 15 хвилин для бурі
 
-// Очищення щодня о 00:00
-cron.schedule("0 0 * * *", () => {
-  scores = {};
+// 🕓 Очищення щодоби (24 годин = 86400000 мс)
+setInterval(() => {
   towers = {};
-  console.log("Щоденне очищення рейтингів і веж");
-});
+  scores = {};
+  io.emit("clear");
+  console.log("Рейтинг та вежі очищено автоматично.");
+}, 86400000);
+
+// ⏱️ Таймер для бурі кожну хвилину
+setInterval(() => {
+  timer--;
+  if (timer <= 0) {
+    towers = {};
+    scores = {};
+    io.emit("clear");
+    timer = 900; // скинути таймер
+    console.log("Вежу знищено бурею.");
+  } else {
+    io.emit("tick", { timer });
+  }
+}, 1000);
 
 io.on("connection", socket => {
   console.log("Гравець під'єднався:", socket.id);
+
+  socket.emit("sync", { towers, scores, timer });
+
   socket.on("add-block", ({ word, user }) => {
     if (!towers[user]) towers[user] = [];
     towers[user].push({ word });
@@ -32,16 +51,21 @@ io.on("connection", socket => {
     io.emit("sync", { towers, scores });
   });
 
-  socket.on("sync", data => {
-    towers = data.towers;
-    scores = data.scores;
+  socket.on("sync", ({ towers: newTowers, scores: newScores }) => {
+    towers = newTowers;
+    scores = newScores;
     io.emit("sync", { towers, scores });
   });
 
-  socket.emit("sync", { towers, scores });
-
   socket.on("disconnect", () => {
-    console
+    console.log("Гравець вийшов:", socket.id);
+  });
+});
+
+server.listen(3000, () => {
+  console.log("Мультплеєр-сервер запущено на порті 3000");
+});
+
 
 // ✅ Лише один виклик!
 server.listen(3000, () => {
