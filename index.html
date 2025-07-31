@@ -47,6 +47,9 @@
         #usernameInput {
             margin-top: 20px;
         }
+        #leaderboard {
+            margin-top: 20px;
+        }
     </style>
 </head>
 <body>
@@ -64,6 +67,7 @@
         <div class="tower" id="tower"></div>
         <div class="question" id="question"></div>
         <div class="options" id="options"></div>
+        <div id="leaderboard"></div>
     </div>
 
     <script>
@@ -71,13 +75,25 @@
         let words = [];
         let usedIndexes = new Set();
         let currentIndex = 0;
-        let username = "";
+        let username = localStorage.getItem("username") || "";
         let tower = [];
         let timer = 900;
+        let scores = {};
+        let correctWords = new Set(JSON.parse(localStorage.getItem("correctWords") || "[]"));
+        let level = parseInt(localStorage.getItem("level") || "1");
+
+        if (username) {
+            document.getElementById("usernameInput").style.display = "none";
+            document.getElementById("game").style.display = "block";
+        }
 
         async function loadWords() {
             try {
-                const response = await fetch("/words.csv");
+                let file = "/words.csv";
+                if (level >= 3) file = "/words3.csv";
+                else if (level === 2) file = "/words2.csv";
+
+                const response = await fetch(file);
                 const text = await response.text();
                 const lines = text.trim().split("\n");
                 words = lines.map(line => {
@@ -88,17 +104,24 @@
                 nextQuestion();
             } catch (err) {
                 document.getElementById("question").innerText = "Не вдалося завантажити слова.";
-                console.error("Помилка завантаження words.csv:", err);
+                console.error("Помилка завантаження CSV:", err);
             }
         }
 
         socket.on("sync", data => {
             tower = data.tower || [];
+            scores = data.scores || {};
             renderTower();
+            renderLeaderboard();
         });
 
         socket.on("clear", () => {
             tower = [];
+            correctWords.clear();
+            level++;
+            localStorage.setItem("level", level);
+            localStorage.setItem("correctWords", JSON.stringify([]));
+            loadWords();
             renderTower();
         });
 
@@ -121,14 +144,19 @@
         }
 
         function nextQuestion() {
-            if (usedIndexes.size >= words.length) {
-                usedIndexes.clear();
-                shuffle(words);
+            if (correctWords.size >= words.length) {
+                correctWords.clear();
+                localStorage.setItem("correctWords", JSON.stringify([]));
             }
-            do {
-                currentIndex = Math.floor(Math.random() * words.length);
-            } while (usedIndexes.has(currentIndex));
-            usedIndexes.add(currentIndex);
+            let found = false;
+            for (let i = 0; i < words.length; i++) {
+                if (!correctWords.has(words[i].correct)) {
+                    currentIndex = i;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) return;
 
             const item = words[currentIndex];
             document.getElementById("question").innerText = `Як буде "${item.ua}" нідерландською?`;
@@ -142,6 +170,8 @@
                 btn.innerText = option;
                 btn.onclick = () => {
                     if (option === item.correct) {
+                        correctWords.add(item.correct);
+                        localStorage.setItem("correctWords", JSON.stringify([...correctWords]));
                         socket.emit("add-block", { word: item.correct, user: username });
                         playSound('correct');
                     } else {
@@ -166,6 +196,13 @@
             scoreDiv.innerText = `Висота вежі: ${tower.length}`;
         }
 
+        function renderLeaderboard() {
+            const lb = document.getElementById("leaderboard");
+            lb.innerHTML = `<h3>Рейтинг гравців</h3>`;
+            const sorted = Object.entries(scores).sort((a,b)=>b[1]-a[1]);
+            lb.innerHTML += `<ul>${sorted.map(([name, score]) => `<li>${name}: ${score}</li>`).join('')}</ul>`;
+        }
+
         function playSound(type) {
             const sounds = {
                 correct: new Audio('https://cdn.pixabay.com/audio/2022/03/15/audio_96f7e97907.mp3'),
@@ -178,10 +215,13 @@
         function startGame() {
             username = document.getElementById("username").value.trim();
             if (!username) return alert("Введіть ім’я!");
+            localStorage.setItem("username", username);
             document.getElementById("usernameInput").style.display = "none";
             document.getElementById("game").style.display = "block";
             loadWords();
         }
+
+        if (username) loadWords();
     </script>
 </body>
 </html>
