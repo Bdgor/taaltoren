@@ -11,29 +11,23 @@ const io = new Server(server, {
   }
 });
 
-let towers = {};  // { username: [ { word } ] }
-let scores = {};  // { username: score }
-let timer = 900;  // 15 хвилин у секундах
+let towers = {}; // окрема вежа для кожного гравця
+let scores = {};
+let timer = 900;
 
 io.on("connection", socket => {
-  console.log("Гравець під’єднався:", socket.id);
-
-  socket.emit("sync", { towers, scores });
-  socket.emit("tick", { timer });
+  console.log("Гравець під'єднався:", socket.id);
 
   socket.on("add-block", ({ word, user }) => {
     if (!towers[user]) towers[user] = [];
     towers[user].push({ word });
-
-    if (!scores[user]) scores[user] = 0;
-    scores[user] += 1;
-
+    scores[user] = (scores[user] || 0) + 1;
     io.emit("sync", { towers, scores });
   });
 
-  socket.on("sync", ({ towers: clientTowers, scores: clientScores }) => {
-    towers = { ...towers, ...clientTowers };
-    scores = { ...scores, ...clientScores };
+  socket.on("sync", ({ towers: newTowers, scores: newScores }) => {
+    towers = newTowers;
+    scores = newScores;
     io.emit("sync", { towers, scores });
   });
 
@@ -42,22 +36,19 @@ io.on("connection", socket => {
   });
 });
 
-// Таймер для бурі кожні 15 хвилин
+// Таймер для бурі
 setInterval(() => {
   timer--;
+  io.emit("tick", { timer });
   if (timer <= 0) {
-    towers = {}; // скидати вежі
+    towers = {};
     timer = 900;
     io.emit("clear");
+    io.emit("sync", { towers, scores });
   }
-  io.emit("tick", { timer });
 }, 1000);
 
-server.listen(3000, () => {
-  console.log("Мультплеєр-сервер запущено на порті 3000");
-});
-
-
+// ✅ Лише один виклик!
 server.listen(3000, () => {
   console.log("Мультплеєр-сервер запущено на порті 3000");
 });
