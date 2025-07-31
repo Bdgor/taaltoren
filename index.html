@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <title>TaalToren — Вежа слів</title>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -53,17 +54,28 @@
     <div class="options" id="options"></div>
 
     <script>
+        const socket = io("https://taaltoren.onrender.com");
+
         const words = [
             { ua: "мама", correct: "moeder", wrong: ["voeder", "moedee"] },
             { ua: "тато", correct: "vader", wrong: ["vadeo", "vadei"] },
             { ua: "дідусь", correct: "opa", wrong: ["oia", "owa"] },
             { ua: "бабуся", correct: "oma", wrong: ["ota", "rma"] },
             { ua: "сестра", correct: "zus", wrong: ["zuc", "zbs"] },
-            // ... тут буде решта 500 слів, повний список вбудовується далі
         ];
 
-        let tower = JSON.parse(localStorage.getItem('tower')) || [];
+        let tower = [];
         let timer = 900;
+
+        socket.on("sync", data => {
+            tower = data.tower || [];
+            renderTower();
+        });
+
+        socket.on("clear", () => {
+            tower = [];
+            renderTower();
+        });
 
         function shuffle(array) {
             for (let i = array.length - 1; i > 0; i--) {
@@ -85,7 +97,7 @@
                 btn.innerText = option;
                 btn.onclick = () => {
                     if (option === item.correct) {
-                        addBlock(item.correct);
+                        socket.emit("add-block", item.correct);
                         playSound('correct');
                     } else {
                         playSound('wrong');
@@ -94,12 +106,6 @@
                 };
                 optionsDiv.appendChild(btn);
             });
-        }
-
-        function addBlock(text) {
-            tower.push(text);
-            localStorage.setItem('tower', JSON.stringify(tower));
-            renderTower();
         }
 
         function renderTower() {
@@ -119,9 +125,7 @@
             if (timer <= 0) {
                 playSound('storm');
                 alert(`🌪️ Буря зруйнувала твою вежу! Висота: ${tower.length}`);
-                tower = [];
-                localStorage.removeItem('tower');
-                renderTower();
+                socket.emit("clear-tower");
                 timer = 900;
             }
             const minutes = String(Math.floor(timer / 60)).padStart(2, '0');
@@ -140,7 +144,6 @@
         }
 
         setInterval(updateTimer, 1000);
-        renderTower();
         nextQuestion();
     </script>
 </body>
