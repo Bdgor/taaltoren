@@ -44,6 +44,11 @@
             font-size: 20px;
             color: #333;
         }
+        #levelDisplay {
+            font-size: 18px;
+            margin-top: 10px;
+            color: #666;
+        }
         #usernameInput {
             margin-top: 20px;
         }
@@ -64,6 +69,7 @@
     <div id="game" style="display:none">
         <div id="timer">Наступна буря через: <span id="countdown">15:00</span></div>
         <div id="score">Висота вежі: 0</div>
+        <div id="levelDisplay">Рівень складності: 1</div>
         <div class="tower" id="tower"></div>
         <div class="question" id="question"></div>
         <div class="options" id="options"></div>
@@ -101,11 +107,16 @@
                     return { ua, correct, wrong: [wrong1, wrong2] };
                 });
                 shuffle(words);
+                updateLevelDisplay();
                 nextQuestion();
             } catch (err) {
                 document.getElementById("question").innerText = "Не вдалося завантажити слова.";
                 console.error("Помилка завантаження CSV:", err);
             }
+        }
+
+        function updateLevelDisplay() {
+            document.getElementById("levelDisplay").innerText = `Рівень складності: ${level}`;
         }
 
         socket.on("sync", data => {
@@ -121,6 +132,7 @@
             level++;
             localStorage.setItem("level", level);
             localStorage.setItem("correctWords", JSON.stringify([]));
+            updateLevelDisplay();
             loadWords();
             renderTower();
         });
@@ -175,6 +187,8 @@
                         socket.emit("add-block", { word: item.correct, user: username });
                         playSound('correct');
                     } else {
+                        scores[username] = (scores[username] || 0) - 1;
+                        socket.emit("sync", { tower, scores });
                         playSound('wrong');
                     }
                     nextQuestion();
