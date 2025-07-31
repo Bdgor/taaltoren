@@ -12,7 +12,7 @@
         }
         .tower {
             margin: 20px auto;
-            width: 100px;
+            width: 120px;
         }
         .block {
             background-color: #4CAF50;
@@ -21,6 +21,7 @@
             margin: 2px 0;
             border-radius: 4px;
             animation: drop 0.3s ease;
+            word-wrap: break-word;
         }
         @keyframes drop {
             0% { transform: translateY(-20px); opacity: 0; }
@@ -43,22 +44,36 @@
             font-size: 20px;
             color: #333;
         }
+        #usernameInput {
+            margin-top: 20px;
+        }
     </style>
 </head>
 <body>
     <h1>TaalToren — Вежа слів</h1>
-    <div id="timer">Наступна буря через: <span id="countdown">15:00</span></div>
-    <div id="score">Висота вежі: 0</div>
-    <div class="tower" id="tower"></div>
-    <div class="question" id="question"></div>
-    <div class="options" id="options"></div>
+
+    <div id="usernameInput">
+        <label for="username">Введіть своє ім’я:</label>
+        <input type="text" id="username" placeholder="Ім’я">
+        <button onclick="startGame()">Почати гру</button>
+    </div>
+
+    <div id="game" style="display:none">
+        <div id="timer">Наступна буря через: <span id="countdown">15:00</span></div>
+        <div id="score">Висота вежі: 0</div>
+        <div class="tower" id="tower"></div>
+        <div class="question" id="question"></div>
+        <div class="options" id="options"></div>
+    </div>
 
     <script>
         const socket = io("https://taaltoren.onrender.com");
-
         let words = [];
         let usedIndexes = new Set();
         let currentIndex = 0;
+        let username = "";
+        let tower = [];
+        let timer = 900;
 
         async function loadWords() {
             try {
@@ -77,9 +92,6 @@
             }
         }
 
-        let tower = [];
-        let timer = 900;
-
         socket.on("sync", data => {
             tower = data.tower || [];
             renderTower();
@@ -92,10 +104,14 @@
 
         socket.on("tick", data => {
             timer = data.timer;
+            updateTimerDisplay();
+        });
+
+        function updateTimerDisplay() {
             const minutes = String(Math.floor(timer / 60)).padStart(2, '0');
             const seconds = String(timer % 60).padStart(2, '0');
             document.getElementById("countdown").innerText = `${minutes}:${seconds}`;
-        });
+        }
 
         function shuffle(array) {
             for (let i = array.length - 1; i > 0; i--) {
@@ -126,7 +142,7 @@
                 btn.innerText = option;
                 btn.onclick = () => {
                     if (option === item.correct) {
-                        socket.emit("add-block", item.correct);
+                        socket.emit("add-block", { word: item.correct, user: username });
                         playSound('correct');
                     } else {
                         playSound('wrong');
@@ -141,10 +157,10 @@
             const towerDiv = document.getElementById("tower");
             const scoreDiv = document.getElementById("score");
             towerDiv.innerHTML = "";
-            tower.slice().reverse().forEach(text => {
+            tower.slice().reverse().forEach(entry => {
                 const block = document.createElement("div");
                 block.className = "block";
-                block.innerText = text;
+                block.innerText = `${entry.word} (${entry.user})`;
                 towerDiv.appendChild(block);
             });
             scoreDiv.innerText = `Висота вежі: ${tower.length}`;
@@ -159,7 +175,13 @@
             if (sounds[type]) sounds[type].play();
         }
 
-        loadWords();
+        function startGame() {
+            username = document.getElementById("username").value.trim();
+            if (!username) return alert("Введіть ім’я!");
+            document.getElementById("usernameInput").style.display = "none";
+            document.getElementById("game").style.display = "block";
+            loadWords();
+        }
     </script>
 </body>
 </html>
