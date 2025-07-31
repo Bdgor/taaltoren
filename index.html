@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <title>TaalToren — Вежа слів</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            background-color: #f0f0f0;
+        }
+        .tower {
+            margin: 20px auto;
+            width: 100px;
+        }
+        .block {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px;
+            margin: 2px 0;
+            border-radius: 4px;
+            animation: drop 0.3s ease;
+        }
+        @keyframes drop {
+            0% { transform: translateY(-20px); opacity: 0; }
+            100% { transform: translateY(0); opacity: 1; }
+        }
+        .question {
+            margin: 20px;
+            font-size: 20px;
+        }
+        .options button {
+            padding: 10px 20px;
+            margin: 5px;
+            font-size: 16px;
+        }
+        #timer {
+            font-size: 18px;
+            color: #555;
+        }
+        #score {
+            font-size: 20px;
+            color: #333;
+        }
+    </style>
+</head>
+<body>
+    <h1>TaalToren — Вежа слів</h1>
+    <div id="timer">Наступна буря через: <span id="countdown">15:00</span></div>
+    <div id="score">Висота вежі: 0</div>
+    <div class="tower" id="tower"></div>
+    <div class="question" id="question"></div>
+    <div class="options" id="options"></div>
+
+    <script>
+        const words = [
+            { ua: "мама", correct: "moeder", wrong: ["voeder", "moedee"] },
+            { ua: "тато", correct: "vader", wrong: ["vadeo", "vadei"] },
+            { ua: "дідусь", correct: "opa", wrong: ["oia", "owa"] },
+            { ua: "бабуся", correct: "oma", wrong: ["ota", "rma"] },
+            { ua: "сестра", correct: "zus", wrong: ["zuc", "zbs"] },
+            // ... тут буде решта 500 слів, повний список вбудовується далі
+        ];
+
+        let tower = JSON.parse(localStorage.getItem('tower')) || [];
+        let timer = 900;
+
+        function shuffle(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+        }
+
+        function nextQuestion() {
+            const item = words[Math.floor(Math.random() * words.length)];
+            document.getElementById("question").innerText = `Як буде \"${item.ua}\" нідерландською?`;
+            let options = [item.correct, ...item.wrong];
+            shuffle(options);
+
+            const optionsDiv = document.getElementById("options");
+            optionsDiv.innerHTML = "";
+            options.forEach(option => {
+                const btn = document.createElement("button");
+                btn.innerText = option;
+                btn.onclick = () => {
+                    if (option === item.correct) {
+                        addBlock(item.correct);
+                        playSound('correct');
+                    } else {
+                        playSound('wrong');
+                    }
+                    nextQuestion();
+                };
+                optionsDiv.appendChild(btn);
+            });
+        }
+
+        function addBlock(text) {
+            tower.push(text);
+            localStorage.setItem('tower', JSON.stringify(tower));
+            renderTower();
+        }
+
+        function renderTower() {
+            const towerDiv = document.getElementById("tower");
+            const scoreDiv = document.getElementById("score");
+            towerDiv.innerHTML = "";
+            tower.slice().reverse().forEach(text => {
+                const block = document.createElement("div");
+                block.className = "block";
+                block.innerText = text;
+                towerDiv.appendChild(block);
+            });
+            scoreDiv.innerText = `Висота вежі: ${tower.length}`;
+        }
+
+        function updateTimer() {
+            if (timer <= 0) {
+                playSound('storm');
+                alert(`🌪️ Буря зруйнувала твою вежу! Висота: ${tower.length}`);
+                tower = [];
+                localStorage.removeItem('tower');
+                renderTower();
+                timer = 900;
+            }
+            const minutes = String(Math.floor(timer / 60)).padStart(2, '0');
+            const seconds = String(timer % 60).padStart(2, '0');
+            document.getElementById("countdown").innerText = `${minutes}:${seconds}`;
+            timer--;
+        }
+
+        function playSound(type) {
+            const sounds = {
+                correct: new Audio('https://cdn.pixabay.com/audio/2022/03/15/audio_96f7e97907.mp3'),
+                wrong: new Audio('https://cdn.pixabay.com/audio/2022/03/15/audio_88195d96a7.mp3'),
+                storm: new Audio('https://cdn.pixabay.com/audio/2022/02/23/audio_1ad76fc186.mp3')
+            };
+            if (sounds[type]) sounds[type].play();
+        }
+
+        setInterval(updateTimer, 1000);
+        renderTower();
+        nextQuestion();
+    </script>
+</body>
+</html>
