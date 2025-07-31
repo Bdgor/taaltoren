@@ -56,13 +56,21 @@
     <script>
         const socket = io("https://taaltoren.onrender.com");
 
-        const words = [
-            { ua: "мама", correct: "moeder", wrong: ["voeder", "moedee"] },
-            { ua: "тато", correct: "vader", wrong: ["vadeo", "vadei"] },
-            { ua: "дідусь", correct: "opa", wrong: ["oia", "owa"] },
-            { ua: "бабуся", correct: "oma", wrong: ["ota", "rma"] },
-            { ua: "сестра", correct: "zus", wrong: ["zuc", "zbs"] },
-        ];
+        let words = [];
+        let usedIndexes = new Set();
+        let currentIndex = 0;
+
+        async function loadWords() {
+            const response = await fetch("words.csv");
+            const text = await response.text();
+            const lines = text.trim().split("\n");
+            words = lines.map(line => {
+                const [ua, correct, wrong1, wrong2] = line.split(",");
+                return { ua, correct, wrong: [wrong1, wrong2] };
+            });
+            shuffle(words);
+            nextQuestion();
+        }
 
         let tower = [];
         let timer = 900;
@@ -92,8 +100,17 @@
         }
 
         function nextQuestion() {
-            const item = words[Math.floor(Math.random() * words.length)];
-            document.getElementById("question").innerText = `Як буде \"${item.ua}\" нідерландською?`;
+            if (usedIndexes.size >= words.length) {
+                usedIndexes.clear();
+                shuffle(words);
+            }
+            do {
+                currentIndex = Math.floor(Math.random() * words.length);
+            } while (usedIndexes.has(currentIndex));
+            usedIndexes.add(currentIndex);
+
+            const item = words[currentIndex];
+            document.getElementById("question").innerText = `Як буде "${item.ua}" нідерландською?`;
             let options = [item.correct, ...item.wrong];
             shuffle(options);
 
@@ -137,7 +154,7 @@
             if (sounds[type]) sounds[type].play();
         }
 
-        nextQuestion();
+        loadWords();
     </script>
 </body>
 </html>
