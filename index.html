@@ -79,10 +79,9 @@
     <script>
         const socket = io("https://taaltoren.onrender.com");
         let words = [];
-        let usedIndexes = new Set();
         let currentIndex = 0;
         let username = localStorage.getItem("username") || "";
-        let tower = [];
+        let playerTowers = {}; // окремі вежі для кожного
         let timer = 900;
         let scores = {};
         let correctWords = new Set(JSON.parse(localStorage.getItem("correctWords") || "[]"));
@@ -120,21 +119,19 @@
         }
 
         socket.on("sync", data => {
-            tower = data.tower || [];
+            playerTowers = data.towers || {};
             scores = data.scores || {};
             renderTower();
             renderLeaderboard();
         });
 
         socket.on("clear", () => {
-            tower = [];
             correctWords.clear();
             level++;
             localStorage.setItem("level", level);
             localStorage.setItem("correctWords", JSON.stringify([]));
             updateLevelDisplay();
             loadWords();
-            renderTower();
         });
 
         socket.on("tick", data => {
@@ -188,7 +185,7 @@
                         playSound('correct');
                     } else {
                         scores[username] = (scores[username] || 0) - 1;
-                        socket.emit("sync", { tower, scores });
+                        socket.emit("sync", { towers: playerTowers, scores });
                         playSound('wrong');
                     }
                     nextQuestion();
@@ -201,13 +198,14 @@
             const towerDiv = document.getElementById("tower");
             const scoreDiv = document.getElementById("score");
             towerDiv.innerHTML = "";
-            tower.slice().reverse().forEach(entry => {
+            const personalTower = playerTowers[username] || [];
+            personalTower.slice().reverse().forEach(entry => {
                 const block = document.createElement("div");
                 block.className = "block";
-                block.innerText = `${entry.word} (${entry.user})`;
+                block.innerText = `${entry.word}`;
                 towerDiv.appendChild(block);
             });
-            scoreDiv.innerText = `Висота вежі: ${tower.length}`;
+            scoreDiv.innerText = `Висота вежі: ${personalTower.length}`;
         }
 
         function renderLeaderboard() {
@@ -234,6 +232,11 @@
             document.getElementById("game").style.display = "block";
             loadWords();
         }
+
+        if (username) loadWords();
+    </script>
+</body>
+</html>
 
         if (username) loadWords();
     </script>
