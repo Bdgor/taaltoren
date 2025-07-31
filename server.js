@@ -1,51 +1,62 @@
 const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
-const path = require("path");
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: { origin: "*", methods: ["GET", "POST"] }
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"]
+  }
 });
 
-app.use(express.static(path.join(__dirname)));
-
-let tower = [];
-let players = {};
-let timer = 900;
-
-// Скидання башти кожні 15 хв
-setInterval(() => {
-  tower = [];
-  io.emit("clear");
-  timer = 900;
-}, 1000 * 900);
-
-// Зменшення таймера кожну секунду
-setInterval(() => {
-  if (timer > 0) timer--;
-  io.emit("tick", { timer });
-}, 1000);
+let towers = {};  // { username: [ { word } ] }
+let scores = {};  // { username: score }
+let timer = 900;  // 15 хвилин у секундах
 
 io.on("connection", socket => {
-  console.log("Гравець під'єднався:", socket.id);
-  socket.emit("sync", { tower, timer, scores: players });
+  console.log("Гравець під’єднався:", socket.id);
+
+  socket.emit("sync", { towers, scores });
+  socket.emit("tick", { timer });
 
   socket.on("add-block", ({ word, user }) => {
-    tower.push({ word, user });
+    if (!towers[user]) towers[user] = [];
+    towers[user].push({ word });
 
-    // Підрахунок балів
-    if (!players[user]) players[user] = 0;
-    players[user]++;
+    if (!scores[user]) scores[user] = 0;
+    scores[user] += 1;
 
-    io.emit("sync", { tower, timer, scores: players });
+    io.emit("sync", { towers, scores });
+  });
+
+  socket.on("sync", ({ towers: clientTowers, scores: clientScores }) => {
+    towers = { ...towers, ...clientTowers };
+    scores = { ...scores, ...clientScores };
+    io.emit("sync", { towers, scores });
   });
 
   socket.on("disconnect", () => {
     console.log("Гравець вийшов:", socket.id);
   });
 });
+
+// Таймер для бурі кожні 15 хвилин
+setInterval(() => {
+  timer--;
+  if (timer <= 0) {
+    towers = {}; // скидати вежі
+    timer = 900;
+    io.emit("clear");
+  }
+  io.emit("tick", { timer });
+}, 1000);
+
+server.listen(3000, () => {
+  console.log("Мультплеєр-сервер запущено на порті 3000");
+});
+
 
 server.listen(3000, () => {
   console.log("Мультплеєр-сервер запущено на порті 3000");
