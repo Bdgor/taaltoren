@@ -1,41 +1,38 @@
-// server.js (Node.js + Socket.IO)
 const express = require('express');
 const http = require('http');
-const socketIo = require('socket.io');
 const cors = require('cors');
+const { Server } = require('socket.io');
 
 const app = express();
 const server = http.createServer(app);
-const io = socketIo(server, {
+const io = new Server(server, {
   cors: {
-    origin: "*",
+    origin: '*',  // або вкажи конкретну адресу клієнта
   }
 });
 
-let players = {};
+let tower = [];
 
-io.on('connection', (socket) => {
-  console.log('Гравець підʼєднався:', socket.id);
+io.on('connection', socket => {
+  console.log(`👤 Нове підключення: ${socket.id}`);
+  socket.emit('sync', { tower });
 
-  socket.on('register', (nickname) => {
-    players[socket.id] = { nickname, score: 0 };
-    io.emit('players', players);
+  socket.on('add-block', word => {
+    tower.push(word);
+    io.emit('sync', { tower });
   });
 
-  socket.on('update_score', (score) => {
-    if (players[socket.id]) {
-      players[socket.id].score = score;
-      io.emit('players', players);
-    }
+  socket.on('clear-tower', () => {
+    tower = [];
+    io.emit('clear');
   });
 
   socket.on('disconnect', () => {
-    console.log('Відʼєднано:', socket.id);
-    delete players[socket.id];
-    io.emit('players', players);
+    console.log(`❌ Відключився: ${socket.id}`);
   });
 });
 
-server.listen(3000, () => {
-  console.log('Мультиплеєр-сервер запущено на порті 3000');
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+  console.log(`🚀 Socket.IO сервер запущено на порту ${PORT}`);
 });
