@@ -77,6 +77,13 @@
             renderTower();
         });
 
+        socket.on("tick", data => {
+            timer = data.timer;
+            const minutes = String(Math.floor(timer / 60)).padStart(2, '0');
+            const seconds = String(timer % 60).padStart(2, '0');
+            document.getElementById("countdown").innerText = `${minutes}:${seconds}`;
+        });
+
         function shuffle(array) {
             for (let i = array.length - 1; i > 0; i--) {
                 const j = Math.floor(Math.random() * (i + 1));
@@ -121,19 +128,6 @@
             scoreDiv.innerText = `Висота вежі: ${tower.length}`;
         }
 
-        function updateTimer() {
-            if (timer <= 0) {
-                playSound('storm');
-                alert(`🌪️ Буря зруйнувала твою вежу! Висота: ${tower.length}`);
-                socket.emit("clear-tower");
-                timer = 900;
-            }
-            const minutes = String(Math.floor(timer / 60)).padStart(2, '0');
-            const seconds = String(timer % 60).padStart(2, '0');
-            document.getElementById("countdown").innerText = `${minutes}:${seconds}`;
-            timer--;
-        }
-
         function playSound(type) {
             const sounds = {
                 correct: new Audio('https://cdn.pixabay.com/audio/2022/03/15/audio_96f7e97907.mp3'),
@@ -143,7 +137,6 @@
             if (sounds[type]) sounds[type].play();
         }
 
-        setInterval(updateTimer, 1000);
         nextQuestion();
     </script>
 </body>
