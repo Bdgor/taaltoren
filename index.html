@@ -49,7 +49,7 @@
     let activeLevel = null;
     let score = 0;
     let currentCSV = [];
-    let currentWordIndex = 0;
+    let usedWords = [];
     let wrongAnswers = 0;
     let playerName = localStorage.getItem('taaltoren_username') || '';
 
@@ -90,14 +90,16 @@
             return { ua: ua.trim(), nl: nl.trim() };
           });
           shuffle(currentCSV);
+          usedWords = [];
           showNextWord();
         });
     }
 
     function showNextWord() {
-      if (currentCSV.length === 0) return;
-      currentWordIndex = Math.floor(Math.random() * currentCSV.length);
-      const word = currentCSV[currentWordIndex];
+      const availableWords = currentCSV.filter(word => !usedWords.includes(word.nl));
+      if (availableWords.length === 0) return;
+      const word = availableWords[Math.floor(Math.random() * availableWords.length)];
+
       document.getElementById('question').innerText = `Перекласти: ${word.ua}`;
 
       const correct = word.nl;
@@ -110,18 +112,22 @@
         const btn = document.createElement('button');
         btn.innerText = opt;
         btn.className = 'option-button';
-        btn.onclick = () => checkAnswer(opt);
+        btn.onclick = () => checkAnswer(opt, correct, word);
         optionsContainer.appendChild(btn);
       });
     }
 
-    function checkAnswer(selected) {
-      const correct = currentCSV[currentWordIndex].nl;
+    function checkAnswer(selected, correct, word) {
       if (selected === correct) {
         increaseScore();
-        addBlock(currentCSV[currentWordIndex].nl);
+        addBlock(word.nl);
+        usedWords.push(word.nl);
         wrongAnswers = 0;
       } else {
+        score = Math.max(0, score - 1);
+        scores[activeLevel] = score;
+        localStorage.setItem('taaltoren_scores', JSON.stringify(scores));
+        document.getElementById('score-display').innerText = 'Очки: ' + score;
         wrongAnswers++;
         if (wrongAnswers >= 3) {
           triggerStorm();
