@@ -6,7 +6,17 @@
   <style>
     body { font-family: sans-serif; text-align: center; }
     button { margin: 5px; padding: 10px 20px; font-size: 16px; }
-    #tower div { width: 100px; height: 20px; background: black; margin: 2px auto; }
+    #tower .block {
+      width: 100px;
+      height: 20px;
+      background: #4caf50;
+      color: white;
+      font-weight: bold;
+      margin: 2px auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
     .option-button { display: block; margin: 10px auto; padding: 10px 15px; font-size: 16px; cursor: pointer; }
   </style>
 </head>
@@ -109,7 +119,7 @@
       const correct = currentCSV[currentWordIndex].nl;
       if (selected === correct) {
         increaseScore();
-        addBlock();
+        addBlock(currentCSV[currentWordIndex].nl);
         wrongAnswers = 0;
       } else {
         wrongAnswers++;
@@ -128,8 +138,10 @@
       document.getElementById('score-display').innerText = 'Очки: ' + score;
     }
 
-    function addBlock() {
+    function addBlock(word) {
       const block = document.createElement('div');
+      block.className = 'block';
+      block.innerText = word;
       document.getElementById('tower').appendChild(block);
     }
 
@@ -148,7 +160,7 @@
       if (word.length < 2) return word + 'x';
       let arr = word.split('');
       let i = Math.floor(Math.random() * (word.length - 1));
-      [arr[i], arr[i + 1]] = [arr[i + 1], arr[i]]; // swap two letters
+      [arr[i], arr[i + 1]] = [arr[i + 1], arr[i]];
       return arr.join('');
     }
 
