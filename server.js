@@ -15,54 +15,52 @@ const io = new Server(server, {
 app.use(cors());
 app.use(express.static("public"));
 
-let towers = {};       // кожен гравець має свою вежу
-let scores = {};       // рейтинг гравців
-let timer = 900;       // 15 хвилин
+let towers = { A0: {}, A1: {}, A2: {} };
+let scoresSession = { A0: {}, A1: {}, A2: {} };
+let scoresGlobal = { A0: {}, A1: {}, A2: {} };
+let timer = 900;
 let interval = null;
+let activeLevel = "A0"; // By default
 
-// Запуск таймера
 function startTimer() {
   if (interval) return;
   interval = setInterval(() => {
     timer--;
     io.emit("tick", { timer });
     if (timer <= 0) {
-      towers = {};
+      towers = { A0: {}, A1: {}, A2: {} };
+      // Обнуляємо сесійний рейтинг ДЛЯ ВСІХ рівнів
+      scoresSession = { A0: {}, A1: {}, A2: {} };
       timer = 900;
       io.emit("clear");
-      io.emit("sync", { towers, scores });
+      io.emit("sync", { scoresSession, scoresGlobal });
     }
   }, 1000);
 }
 
 io.on("connection", socket => {
   console.log("Користувач під'єднався:", socket.id);
-  socket.emit("sync", { towers, scores });
+  socket.emit("sync", { scoresSession, scoresGlobal });
   socket.emit("tick", { timer });
   startTimer();
 
   socket.on("add-block", data => {
-    const { user, word } = data;
-    if (!towers[user]) towers[user] = [];
-    towers[user].push({ word });
-    if (!scores[user]) scores[user] = 0;
-    scores[user]++;
-    io.emit("sync", { towers, scores });
-  });
+    const { user, word, level } = data;
+    if (!level) return; // захист
 
-  socket.on("sync", data => {
-    towers = data.towers;
-    scores = data.scores;
-    io.emit("sync", { towers, scores });
+    // Сесійний рейтинг для рівня
+    if (!scoresSession[level][user]) scoresSession[level][user] = 0;
+    scoresSession[level][user]++;
+    // Глобальний рейтинг для рівня
+    if (!scoresGlobal[level][user]) scoresGlobal[level][user] = 0;
+    scoresGlobal[level][user]++;
+    io.emit("sync", { scoresSession, scoresGlobal });
   });
 
   socket.on("disconnect", () => {
     console.log("Користувач вийшов:", socket.id);
   });
 });
-
-// === ВАЖЛИВО ===
-// Видалено cron.schedule для очищення рейтингу!
 
 server.listen(3000, () => {
   console.log("Сервер працює на порті 3000");
