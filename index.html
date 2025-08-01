@@ -38,23 +38,7 @@
       margin-top: 10px;
       margin-bottom: 10px;
     }
-    #all-towers {
-      display: flex;
-      flex-direction: row;
-      flex-wrap: wrap;
-      justify-content: center;
-      margin: 30px 0;
-      gap: 32px;
-    }
-    #all-towers > div {
-      background: #f5f5f5;
-      border-radius: 12px;
-      padding: 10px;
-      min-width: 120px;
-      min-height: 40px;
-      box-shadow: 0 0 4px #bbb;
-    }
-    #rating {
+    #rating, #session-rating {
       margin-bottom: 30px;
     }
   </style>
@@ -87,18 +71,18 @@
     <!-- Варіанти у flex-рядку -->
     <div id="options" class="option-row"></div>
 
+    <div id="session-rating"></div>
     <div id="rating"></div>
-    <div id="all-towers"></div>
   </div>
 
   <script>
-    // ПРАВИЛЬНА АДРЕСА ПІДКЛЮЧЕННЯ ДО RENDER
     let socket = io("https://taaltoren.onrender.com");
-    let serverOnline = true;
 
-    let allTowers = {};
-    let allScores = {};
-    let serverTimer = 900;
+    let allScoresSession = { A0: {}, A1: {}, A2: {} };
+    let allScoresGlobal  = { A0: {}, A1: {}, A2: {} };
+    let lastServerTimer = 900;
+    let lastServerTimeUpdate = Date.now();
+
     let scores = JSON.parse(localStorage.getItem('taaltoren_scores')) || { A0: 0, A1: 0, A2: 0 };
     let activeLevel = localStorage.getItem('taaltoren_activeLevel') || null;
     let score = 0;
@@ -106,28 +90,34 @@
     let usedWords = [];
     let playerName = localStorage.getItem('taaltoren_username') || '';
 
-    // Таймер бурі (від сервера або локальний)
-    let stormCountdownInterval = null;
-    let stormInterval = 15 * 60 * 1000;
-    let stormTimerLocal = null;
-
-    // ===== ОНЛАЙН ОБРОБНИКИ =====
-    socket.on("sync", ({ towers, scores }) => {
-      allTowers = towers || {};
-      allScores = scores || {};
-      updateTowersAndScores();
-    });
-
+    // --- Таймер бурі ---
     socket.on("tick", ({ timer }) => {
-      serverTimer = timer;
-      updateStormCountdown(serverTimer);
+      lastServerTimer = timer;
+      lastServerTimeUpdate = Date.now();
     });
+
+    setInterval(() => {
+      const elapsed = Math.floor((Date.now() - lastServerTimeUpdate) / 1000);
+      const left = Math.max(0, lastServerTimer - elapsed);
+      const timerElem = document.getElementById('storm-timer');
+      if (timerElem) {
+        let min = Math.floor(left / 60);
+        let sec = Math.floor(left % 60);
+        timerElem.innerText = `До бурі: ${min.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`;
+      }
+    }, 1000);
 
     socket.on("clear", () => {
       triggerStorm();
     });
 
-    // ===== ЗБЕРЕЖЕННЯ ГРИ ПРИ ОНОВЛЕННІ =====
+    socket.on("sync", ({ scoresSession, scoresGlobal }) => {
+      allScoresSession = scoresSession || { A0: {}, A1: {}, A2: {} };
+      allScoresGlobal  = scoresGlobal  || { A0: {}, A1: {}, A2: {} };
+      updateTowersAndScores();
+    });
+
+    // --- Збереження гри при оновленні ---
     if (playerName) {
       document.getElementById('username-section').style.display = 'none';
       if (activeLevel) {
@@ -162,9 +152,6 @@
 
       const csvFile = level === 'A0' ? 'words.csv' : level === 'A1' ? 'words2.csv' : 'words3.csv';
       loadCSV(csvFile, isReload);
-
-      // Таймер бурі: серверний або локальний
-      // (цей блок можна залишити для підтримки оффлайн, якщо сервер раптом недоступний)
     }
 
     function loadCSV(file, isReload = false) {
@@ -218,7 +205,6 @@
         scores[activeLevel] = score;
         localStorage.setItem('taaltoren_scores', JSON.stringify(scores));
         document.getElementById('score-display').innerText = 'Очки: ' + score;
-        // Не викликаємо бурю! Tower зберігається.
       }
       showNextWord();
     }
@@ -236,7 +222,9 @@
       block.className = 'block';
       block.innerText = word;
       document.getElementById('tower').appendChild(block);
-      if (serverOnline && socket) socket.emit("add-block", { user: playerName, word });
+      if (socket && activeLevel) {
+        socket.emit("add-block", { user: playerName, word, level: activeLevel });
+      }
     }
 
     function clearTower() {
@@ -268,67 +256,23 @@
       document.getElementById('level-selection').style.display = 'block';
     }
 
-    // ===== ОНОВЛЕННЯ ВЕЖ ТА РЕЙТИНГУ =====
     function updateTowersAndScores() {
-      const allTowersDiv = document.getElementById('all-towers');
-      allTowersDiv.innerHTML = '';
-      Object.keys(allTowers).forEach(user => {
-        if (user === playerName) return;
-        const blocks = allTowers[user].map(b => `<div class="block">${b.word}</div>`).join('');
-        allTowersDiv.innerHTML += `<div><strong>${user}:</strong><br>${blocks}</div>`;
-      });
+      // Рейтинг глобальний
       const ratingDiv = document.getElementById('rating');
-      let sorted = Object.entries(allScores).sort((a,b) => b[1]-a[1]);
-      ratingDiv.innerHTML = `<h4>Рейтинг гравців</h4>` +
-        sorted.map(([user, sc], idx) =>
-          `<div>${idx+1}. ${user}: <b>${sc}</b></div>`
+      let lvl = activeLevel || 'A0';
+      let sortedGlobal = Object.entries(allScoresGlobal[lvl] || {}).sort((a, b) => b[1] - a[1]);
+      ratingDiv.innerHTML = `<h4>Глобальний рейтинг (${lvl})</h4>` +
+        sortedGlobal.map(([user, sc], idx) =>
+          `<div>${idx + 1}. ${user}: <b>${sc}</b></div>`
         ).join('');
-    }
 
-    // ===== ЛОКАЛЬНИЙ ТАЙМЕР ДЛЯ ОФФЛАЙН =====
-    function startStormTimerLocal() {
-      clearTimeout(stormTimerLocal);
-      stormTimerLocal = setTimeout(() => {
-        triggerStorm();
-      }, stormInterval);
-      updateStormCountdownLocal();
-    }
-
-    function updateStormCountdownLocal() {
-      clearInterval(stormCountdownInterval);
-      const timerElem = document.getElementById('storm-timer');
-      if (!timerElem) return;
-      let remaining = stormInterval / 1000;
-      stormCountdownInterval = setInterval(() => {
-        if (remaining <= 0) {
-          timerElem.innerText = '';
-          clearInterval(stormCountdownInterval);
-          return;
-        }
-        let min = Math.floor(remaining / 60);
-        let sec = Math.floor(remaining % 60);
-        timerElem.innerText = `До бурі: ${min.toString().padStart(2,'0')}:${sec.toString().padStart(2,'0')}`;
-        remaining -= 1;
-      }, 1000);
-    }
-
-    // ===== ОНЛАЙН-ВАРІАНТ ТАЙМЕРА =====
-    function updateStormCountdown(serverTimerVal = null) {
-      clearInterval(stormCountdownInterval);
-      const timerElem = document.getElementById('storm-timer');
-      if (!timerElem) return;
-      let remaining = serverTimerVal || 900;
-      stormCountdownInterval = setInterval(() => {
-        if (remaining <= 0) {
-          timerElem.innerText = '';
-          clearInterval(stormCountdownInterval);
-          return;
-        }
-        let min = Math.floor(remaining / 60);
-        let sec = Math.floor(remaining % 60);
-        timerElem.innerText = `До бурі: ${min.toString().padStart(2,'0')}:${sec.toString().padStart(2,'0')}`;
-        remaining -= 1;
-      }, 1000);
+      // Рейтинг сесії
+      const sessionDiv = document.getElementById('session-rating');
+      let sortedSession = Object.entries(allScoresSession[lvl] || {}).sort((a, b) => b[1] - a[1]);
+      sessionDiv.innerHTML = `<h4>Рейтинг цієї сесії (${lvl})</h4>` +
+        sortedSession.map(([user, sc], idx) =>
+          `<div>${idx + 1}. ${user}: <b>${sc}</b></div>`
+        ).join('');
     }
   </script>
 </body>
