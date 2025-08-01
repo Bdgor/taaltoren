@@ -43,7 +43,7 @@
       document.getElementById('level-display').innerText = 'Рівень: ' + activeLevel;
       document.getElementById('score-display').innerText = 'Очки: ' + score;
 
-      let csvFile = level === 'A0' ? 'csv1.csv' : level === 'A1' ? 'csv2.csv' : 'csv3.csv';
+      const csvFile = level === 'A0' ? 'words.csv' : level === 'A1' ? 'words2.csv' : 'words3.csv';
       loadCSV(csvFile);
     }
 
@@ -58,6 +58,10 @@
           });
           shuffle(currentCSV);
           showNextWord();
+
+          document.getElementById('answer').addEventListener('keydown', function (e) {
+            if (e.key === 'Enter') checkAnswer();
+          });
         });
     }
 
@@ -119,15 +123,13 @@
       document.getElementById('level-selection').style.display = 'block';
 
       const buttons = document.querySelectorAll('#level-selection button');
+      const levelOrder = ['A0', 'A1', 'A2'];
+      const currentIndex = levelOrder.indexOf(activeLevel);
+
       buttons.forEach(btn => {
         const level = btn.innerText.includes('A0') ? 'A0' : btn.innerText.includes('A1') ? 'A1' : 'A2';
-
-        const allowed =
-          (activeLevel === 'A0' && (level === 'A0' || level === 'A1')) ||
-          (activeLevel === 'A1') ||
-          (activeLevel === 'A2' && (level === 'A2' || level === 'A1'));
-
-        btn.disabled = !allowed;
+        const btnIndex = levelOrder.indexOf(level);
+        btn.disabled = Math.abs(btnIndex - currentIndex) > 1;
       });
     }
   </script>
