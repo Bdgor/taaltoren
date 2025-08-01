@@ -15,12 +15,10 @@ const io = new Server(server, {
 app.use(cors());
 app.use(express.static("public"));
 
-let towers = { A0: {}, A1: {}, A2: {} };
 let scoresSession = { A0: {}, A1: {}, A2: {} };
 let scoresGlobal = { A0: {}, A1: {}, A2: {} };
 let timer = 900;
 let interval = null;
-let activeLevel = "A0"; // By default
 
 function startTimer() {
   if (interval) return;
@@ -28,9 +26,7 @@ function startTimer() {
     timer--;
     io.emit("tick", { timer });
     if (timer <= 0) {
-      towers = { A0: {}, A1: {}, A2: {} };
-      // Обнуляємо сесійний рейтинг ДЛЯ ВСІХ рівнів
-      scoresSession = { A0: {}, A1: {}, A2: {} };
+      scoresSession = { A0: {}, A1: {}, A2: {} }; // Скидаємо лише сесійний рахунок
       timer = 900;
       io.emit("clear");
       io.emit("sync", { scoresSession, scoresGlobal });
@@ -45,13 +41,12 @@ io.on("connection", socket => {
   startTimer();
 
   socket.on("add-block", data => {
-    const { user, word, level } = data;
-    if (!level) return; // захист
-
-    // Сесійний рейтинг для рівня
+    const { user, level } = data;
+    if (!user || !level) return;
+    // Сесійний рейтинг
     if (!scoresSession[level][user]) scoresSession[level][user] = 0;
     scoresSession[level][user]++;
-    // Глобальний рейтинг для рівня
+    // Глобальний рейтинг
     if (!scoresGlobal[level][user]) scoresGlobal[level][user] = 0;
     scoresGlobal[level][user]++;
     io.emit("sync", { scoresSession, scoresGlobal });
