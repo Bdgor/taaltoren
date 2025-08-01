@@ -92,47 +92,54 @@
   </div>
 
   <script>
-    // ПІДКЛЮЧЕННЯ ДО SOCKET.IO СЕРВЕРУ
-    let socket = io("http://localhost:3000"); // заміни на свій домен/порт при продакшн
+    // Спроба підключення до сервера
+    let socket = null;
+    let serverOnline = false;
+    try {
+      socket = io("http://localhost:3000", {timeout: 2000});
+      serverOnline = true;
+    } catch (e) {
+      serverOnline = false;
+    }
+
     let allTowers = {};
     let allScores = {};
     let serverTimer = 900;
-
     let scores = JSON.parse(localStorage.getItem('taaltoren_scores')) || { A0: 0, A1: 0, A2: 0 };
     let activeLevel = localStorage.getItem('taaltoren_activeLevel') || null;
     let score = 0;
     let currentCSV = [];
     let usedWords = [];
-    let wrongAnswers = 0;
     let playerName = localStorage.getItem('taaltoren_username') || '';
 
-    // Таймер бурі (лише для відліку, фактичний storm — із серверу)
+    // Таймер бурі (від сервера або локальний)
     let stormCountdownInterval = null;
+    let stormInterval = 15 * 60 * 1000;
+    let stormTimerLocal = null;
 
-    // Socket.IO handlers
-    socket.on("sync", ({ towers, scores }) => {
-      allTowers = towers || {};
-      allScores = scores || {};
-      updateTowersAndScores();
-    });
+    // ===== ОНЛАЙН ОБРОБНИКИ =====
+    if (serverOnline && socket) {
+      socket.on("sync", ({ towers, scores }) => {
+        allTowers = towers || {};
+        allScores = scores || {};
+        updateTowersAndScores();
+      });
 
-    socket.on("tick", ({ timer }) => {
-      serverTimer = timer;
-      updateStormCountdown(serverTimer);
-    });
+      socket.on("tick", ({ timer }) => {
+        serverTimer = timer;
+        updateStormCountdown(serverTimer);
+      });
 
-    socket.on("clear", () => {
-      clearTower();
-      usedWords = [];
-      // Очищаємо свою tower на екрані
-      document.getElementById('tower').innerHTML = '';
-    });
+      socket.on("clear", () => {
+        triggerStorm();
+      });
+    }
 
-    // ==== ЗБЕРЕЖЕННЯ ГРИ ПРИ ОНОВЛЕННІ ====
+    // ===== ЗБЕРЕЖЕННЯ ГРИ ПРИ ОНОВЛЕННІ =====
     if (playerName) {
       document.getElementById('username-section').style.display = 'none';
       if (activeLevel) {
-        selectLevel(activeLevel, true); // одразу запускаємо гру на останньому рівні
+        selectLevel(activeLevel, true);
       } else {
         document.getElementById('level-selection').style.display = 'block';
       }
@@ -163,6 +170,9 @@
 
       const csvFile = level === 'A0' ? 'words.csv' : level === 'A1' ? 'words2.csv' : 'words3.csv';
       loadCSV(csvFile, isReload);
+
+      // Таймер бурі: серверний або локальний
+      if (!serverOnline) startStormTimerLocal();
     }
 
     function loadCSV(file, isReload = false) {
@@ -173,17 +183,13 @@
           currentCSV = lines.map(line => {
             const parts = line.split(',');
             const ua = parts[0] ? parts[0].trim() : '';
-            // Для онлайн-режиму слова можуть бути з варіантами, а не лише одне nl
-            // Тут беремо як правильний варіант другий стовпець (у файлі: укр, nl, ...), але для простоти залишаємо так:
             const nl = parts[1] ? parts[1].trim() : '';
             return { ua, nl };
           });
           shuffle(currentCSV);
           usedWords = [];
           clearTower();
-          if (!isReload) {
-            document.getElementById('tower').innerHTML = '';
-          }
+          if (!isReload) document.getElementById('tower').innerHTML = '';
           showNextWord();
         });
     }
@@ -215,17 +221,12 @@
         increaseScore();
         usedWords.push(word.nl);
         addBlock(word.nl);
-        wrongAnswers = 0;
       } else {
         score = Math.max(0, score - 1);
         scores[activeLevel] = score;
         localStorage.setItem('taaltoren_scores', JSON.stringify(scores));
         document.getElementById('score-display').innerText = 'Очки: ' + score;
-        wrongAnswers++;
-        if (wrongAnswers >= 3) {
-          triggerStorm();
-          return;
-        }
+        // Не викликаємо бурю! Tower зберігається.
       }
       showNextWord();
     }
@@ -237,15 +238,13 @@
       document.getElementById('score-display').innerText = 'Очки: ' + score;
     }
 
-    // === Додаємо блок не лише локально, а й на сервері ===
+    // Додаємо блок (локально + онлайн якщо сервер працює)
     function addBlock(word) {
       const block = document.createElement('div');
       block.className = 'block';
       block.innerText = word;
       document.getElementById('tower').appendChild(block);
-
-      // Синхронізуємо з сервером
-      socket.emit("add-block", { user: playerName, word });
+      if (serverOnline && socket) socket.emit("add-block", { user: playerName, word });
     }
 
     function clearTower() {
@@ -267,29 +266,26 @@
       return arr.join('');
     }
 
-    function triggerStorm(isTimer = false) {
+    function triggerStorm() {
       alert("Буря зруйнувала вашу вежу!");
       clearTower();
       usedWords = [];
       document.getElementById('storm-timer').innerText = '';
-      localStorage.removeItem('taaltoren_activeLevel'); // Скидаємо рівень до вибору
-
+      localStorage.removeItem('taaltoren_activeLevel');
       document.getElementById('game').style.display = 'none';
       document.getElementById('level-selection').style.display = 'block';
-      // Далі можна блокувати рівні, якщо потрібно
     }
 
-    // === ОНОВЛЕННЯ ВЕЖ ТА РЕЙТИНГУ ===
+    // ===== ОНОВЛЕННЯ ВЕЖ ТА РЕЙТИНГУ =====
     function updateTowersAndScores() {
-      // Всі towers (крім своєї)
       const allTowersDiv = document.getElementById('all-towers');
       allTowersDiv.innerHTML = '';
+      if (!serverOnline) return;
       Object.keys(allTowers).forEach(user => {
-        if (user === playerName) return; // свою вежу показуємо окремо
+        if (user === playerName) return;
         const blocks = allTowers[user].map(b => `<div class="block">${b.word}</div>`).join('');
         allTowersDiv.innerHTML += `<div><strong>${user}:</strong><br>${blocks}</div>`;
       });
-      // Рейтинг
       const ratingDiv = document.getElementById('rating');
       let sorted = Object.entries(allScores).sort((a,b) => b[1]-a[1]);
       ratingDiv.innerHTML = `<h4>Рейтинг гравців</h4>` +
@@ -298,7 +294,34 @@
         ).join('');
     }
 
-    // === Таймер до бурі, що синхронізується з сервером ===
+    // ===== ЛОКАЛЬНИЙ ТАЙМЕР ДЛЯ ОФФЛАЙН =====
+    function startStormTimerLocal() {
+      clearTimeout(stormTimerLocal);
+      stormTimerLocal = setTimeout(() => {
+        triggerStorm();
+      }, stormInterval);
+      updateStormCountdownLocal();
+    }
+
+    function updateStormCountdownLocal() {
+      clearInterval(stormCountdownInterval);
+      const timerElem = document.getElementById('storm-timer');
+      if (!timerElem) return;
+      let remaining = stormInterval / 1000;
+      stormCountdownInterval = setInterval(() => {
+        if (remaining <= 0) {
+          timerElem.innerText = '';
+          clearInterval(stormCountdownInterval);
+          return;
+        }
+        let min = Math.floor(remaining / 60);
+        let sec = Math.floor(remaining % 60);
+        timerElem.innerText = `До бурі: ${min.toString().padStart(2,'0')}:${sec.toString().padStart(2,'0')}`;
+        remaining -= 1;
+      }, 1000);
+    }
+
+    // ===== ОНЛАЙН-ВАРІАНТ ТАЙМЕРА =====
     function updateStormCountdown(serverTimerVal = null) {
       clearInterval(stormCountdownInterval);
       const timerElem = document.getElementById('storm-timer');
