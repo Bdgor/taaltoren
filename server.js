@@ -52,6 +52,20 @@ io.on("connection", socket => {
     io.emit("sync", { scoresSession, scoresGlobal });
   });
 
+  // === Ось ця обробка для віднімання балів! ===
+  socket.on("sub-block", data => {
+    const { user, level, minus } = data;
+    if (!user || !level) return;
+    let m = Math.abs(Number(minus) || 1);
+    // Сесійний рейтинг
+    if (!scoresSession[level][user]) scoresSession[level][user] = 0;
+    scoresSession[level][user] = Math.max(0, scoresSession[level][user] - m);
+    // Глобальний рейтинг
+    if (!scoresGlobal[level][user]) scoresGlobal[level][user] = 0;
+    scoresGlobal[level][user] = Math.max(0, scoresGlobal[level][user] - m);
+    io.emit("sync", { scoresSession, scoresGlobal });
+  });
+
   socket.on("disconnect", () => {
     console.log("Користувач вийшов:", socket.id);
   });
