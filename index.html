@@ -1,240 +1,135 @@
 <!DOCTYPE html>
 <html lang="uk">
 <head>
-    <meta charset="UTF-8">
-    <title>TaalToren — Вежа слів</title>
-    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            text-align: center;
-            background-color: #f0f0f0;
-        }
-        .tower {
-            margin: 20px auto;
-            width: 120px;
-        }
-        .block {
-            background-color: #4CAF50;
-            color: white;
-            padding: 10px;
-            margin: 2px 0;
-            border-radius: 4px;
-            animation: drop 0.3s ease;
-            word-wrap: break-word;
-        }
-        @keyframes drop {
-            0% { transform: translateY(-20px); opacity: 0; }
-            100% { transform: translateY(0); opacity: 1; }
-        }
-        .question {
-            margin: 20px;
-            font-size: 20px;
-        }
-        .options button {
-            padding: 10px 20px;
-            margin: 5px;
-            font-size: 16px;
-        }
-        #timer {
-            font-size: 18px;
-            color: #555;
-        }
-        #score {
-            font-size: 20px;
-            color: #333;
-        }
-        #levelDisplay {
-            font-size: 18px;
-            margin-top: 10px;
-            color: #666;
-        }
-        #usernameInput {
-            margin-top: 20px;
-        }
-        #leaderboard {
-            margin-top: 20px;
-        }
-    </style>
+  <meta charset="UTF-8">
+  <title>TaalToren</title>
+  <style>
+    body { font-family: sans-serif; text-align: center; }
+    button { margin: 5px; padding: 10px 20px; font-size: 16px; }
+    #tower div { width: 100px; height: 20px; background: black; margin: 2px auto; }
+  </style>
 </head>
 <body>
-    <h1>TaalToren — Вежа слів</h1>
 
-    <div id="usernameInput">
-        <label for="username">Введіть своє ім’я:</label>
-        <input type="text" id="username" placeholder="Ім’я">
-        <button onclick="startGame()">Почати гру</button>
-    </div>
+  <div id="level-selection" style="margin-top: 50px;">
+    <h2>Виберіть рівень складності</h2>
+    <button onclick="selectLevel('A0')">A0 (🔰 Початковий)</button>
+    <button onclick="selectLevel('A1')">A1 (⚙️ Базовий)</button>
+    <button onclick="selectLevel('A2')">A2 (🔥 Вищий)</button>
+  </div>
 
-    <div id="game" style="display:none">
-        <div id="timer">Наступна буря через: <span id="countdown">15:00</span></div>
-        <div id="score">Висота вежі: 0</div>
-        <div id="levelDisplay">Рівень складності: 1</div>
-        <div class="tower" id="tower"></div>
-        <div class="question" id="question"></div>
-        <div class="options" id="options"></div>
-        <div id="leaderboard"></div>
-    </div>
+  <div id="game" style="display: none;">
+    <h3 id="level-display"></h3>
+    <p id="score-display"></p>
+    <div id="question"></div>
+    <input type="text" id="answer" placeholder="Ваша відповідь">
+    <button onclick="checkAnswer()">Перевірити</button>
+    <div id="tower"></div>
+  </div>
 
-    <script>
-        const socket = io("https://taaltoren.onrender.com");
-        let words = [];
-        let currentIndex = 0;
-        let username = localStorage.getItem("username") || "";
-        let playerTowers = {}; // окремі вежі для кожного
-        let timer = 900;
-        let scores = {};
-        let correctWords = new Set(JSON.parse(localStorage.getItem("correctWords") || "[]"));
-        let level = parseInt(localStorage.getItem("level") || "1");
+  <script>
+    let scores = JSON.parse(localStorage.getItem('taaltoren_scores')) || { A0: 0, A1: 0, A2: 0 };
+    let activeLevel = null;
+    let score = 0;
+    let currentCSV = [];
+    let currentWordIndex = 0;
+    let wrongAnswers = 0;
 
-        if (username) {
-            document.getElementById("usernameInput").style.display = "none";
-            document.getElementById("game").style.display = "block";
-        }
+    function selectLevel(level) {
+      activeLevel = level;
+      score = scores[activeLevel] || 0;
+      document.getElementById('level-selection').style.display = 'none';
+      document.getElementById('game').style.display = 'block';
+      document.getElementById('level-display').innerText = 'Рівень: ' + activeLevel;
+      document.getElementById('score-display').innerText = 'Очки: ' + score;
 
-        async function loadWords() {
-            try {
-                let file = "/words.csv";
-                if (level >= 3) file = "/words3.csv";
-                else if (level === 2) file = "/words2.csv";
+      let csvFile = level === 'A0' ? 'csv1.csv' : level === 'A1' ? 'csv2.csv' : 'csv3.csv';
+      loadCSV(csvFile);
+    }
 
-                const response = await fetch(file);
-                const text = await response.text();
-                const lines = text.trim().split("\n");
-                words = lines.map(line => {
-                    const [ua, correct, wrong1, wrong2] = line.split(",");
-                    return { ua, correct, wrong: [wrong1, wrong2] };
-                });
-                shuffle(words);
-                updateLevelDisplay();
-                nextQuestion();
-            } catch (err) {
-                document.getElementById("question").innerText = "Не вдалося завантажити слова.";
-                console.error("Помилка завантаження CSV:", err);
-            }
-        }
-
-        function updateLevelDisplay() {
-            document.getElementById("levelDisplay").innerText = `Рівень складності: ${level}`;
-        }
-
-        socket.on("sync", data => {
-            playerTowers = data.towers || {};
-            scores = data.scores || {};
-            renderTower();
-            renderLeaderboard();
+    function loadCSV(file) {
+      fetch(file)
+        .then(res => res.text())
+        .then(text => {
+          const lines = text.trim().split('\n');
+          currentCSV = lines.map(line => {
+            const [ua, nl] = line.split(',');
+            return { ua: ua.trim(), nl: nl.trim() };
+          });
+          shuffle(currentCSV);
+          showNextWord();
         });
+    }
 
-        socket.on("clear", () => {
-            correctWords.clear();
-            level++;
-            localStorage.setItem("level", level);
-            localStorage.setItem("correctWords", JSON.stringify([]));
-            updateLevelDisplay();
-            loadWords();
-        });
+    function showNextWord() {
+      if (currentCSV.length === 0) return;
+      currentWordIndex = Math.floor(Math.random() * currentCSV.length);
+      const word = currentCSV[currentWordIndex];
+      document.getElementById('question').innerText = `Перекласти: ${word.ua}`;
+      document.getElementById('answer').value = '';
+    }
 
-        socket.on("tick", data => {
-            timer = data.timer;
-            updateTimerDisplay();
-        });
+    function checkAnswer() {
+      const answer = document.getElementById('answer').value.trim().toLowerCase();
+      const correct = currentCSV[currentWordIndex].nl.toLowerCase();
 
-        function updateTimerDisplay() {
-            const minutes = String(Math.floor(timer / 60)).padStart(2, '0');
-            const seconds = String(timer % 60).padStart(2, '0');
-            document.getElementById("countdown").innerText = `${minutes}:${seconds}`;
+      if (answer === correct) {
+        increaseScore();
+        addBlock();
+        wrongAnswers = 0;
+      } else {
+        wrongAnswers++;
+        if (wrongAnswers >= 3) {
+          triggerStorm();
+          return;
         }
+      }
 
-        function shuffle(array) {
-            for (let i = array.length - 1; i > 0; i--) {
-                const j = Math.floor(Math.random() * (i + 1));
-                [array[i], array[j]] = [array[j], array[i]];
-            }
-        }
+      showNextWord();
+    }
 
-        function nextQuestion() {
-            if (correctWords.size >= words.length) {
-                correctWords.clear();
-                localStorage.setItem("correctWords", JSON.stringify([]));
-            }
-            let found = false;
-            for (let i = 0; i < words.length; i++) {
-                if (!correctWords.has(words[i].correct)) {
-                    currentIndex = i;
-                    found = true;
-                    break;
-                }
-            }
-            if (!found) return;
+    function increaseScore() {
+      score++;
+      scores[activeLevel] = score;
+      localStorage.setItem('taaltoren_scores', JSON.stringify(scores));
+      document.getElementById('score-display').innerText = 'Очки: ' + score;
+    }
 
-            const item = words[currentIndex];
-            document.getElementById("question").innerText = `Як буде "${item.ua}" нідерландською?`;
-            let options = [item.correct, ...item.wrong];
-            shuffle(options);
+    function addBlock() {
+      const block = document.createElement('div');
+      document.getElementById('tower').appendChild(block);
+    }
 
-            const optionsDiv = document.getElementById("options");
-            optionsDiv.innerHTML = "";
-            options.forEach(option => {
-                const btn = document.createElement("button");
-                btn.innerText = option;
-                btn.onclick = () => {
-                    if (option === item.correct) {
-                        correctWords.add(item.correct);
-                        localStorage.setItem("correctWords", JSON.stringify([...correctWords]));
-                        socket.emit("add-block", { word: item.correct, user: username });
-                        playSound('correct');
-                    } else {
-                        scores[username] = (scores[username] || 0) - 1;
-                        socket.emit("sync", { towers: playerTowers, scores });
-                        playSound('wrong');
-                    }
-                    nextQuestion();
-                };
-                optionsDiv.appendChild(btn);
-            });
-        }
+    function clearTower() {
+      document.getElementById('tower').innerHTML = '';
+    }
 
-        function renderTower() {
-            const towerDiv = document.getElementById("tower");
-            const scoreDiv = document.getElementById("score");
-            towerDiv.innerHTML = "";
-            const personalTower = playerTowers[username] || [];
-            personalTower.slice().reverse().forEach(entry => {
-                const block = document.createElement("div");
-                block.className = "block";
-                block.innerText = `${entry.word}`;
-                towerDiv.appendChild(block);
-            });
-            scoreDiv.innerText = `Висота вежі: ${personalTower.length}`;
-        }
+    function shuffle(array) {
+      for (let i = array.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [array[i], array[j]] = [array[j], array[i]];
+      }
+    }
 
-        function renderLeaderboard() {
-            const lb = document.getElementById("leaderboard");
-            lb.innerHTML = `<h3>Рейтинг гравців</h3>`;
-            const sorted = Object.entries(scores).sort((a,b)=>b[1]-a[1]);
-            lb.innerHTML += `<ul>${sorted.map(([name, score]) => `<li>${name}: ${score}</li>`).join('')}</ul>`;
-        }
+    function triggerStorm() {
+      alert("Буря зруйнувала вашу вежу!");
+      clearTower();
 
-        function playSound(type) {
-            const sounds = {
-                correct: new Audio('https://cdn.pixabay.com/audio/2022/03/15/audio_96f7e97907.mp3'),
-                wrong: new Audio('https://cdn.pixabay.com/audio/2022/03/15/audio_88195d96a7.mp3'),
-                storm: new Audio('https://cdn.pixabay.com/audio/2022/02/23/audio_1ad76fc186.mp3')
-            };
-            if (sounds[type]) sounds[type].play();
-        }
+      document.getElementById('game').style.display = 'none';
+      document.getElementById('level-selection').style.display = 'block';
 
-        function startGame() {
-            username = document.getElementById("username").value.trim();
-            if (!username) return alert("Введіть ім’я!");
-            localStorage.setItem("username", username);
-            document.getElementById("usernameInput").style.display = "none";
-            document.getElementById("game").style.display = "block";
-            loadWords();
-        }
+      const buttons = document.querySelectorAll('#level-selection button');
+      buttons.forEach(btn => {
+        const level = btn.innerText.includes('A0') ? 'A0' : btn.innerText.includes('A1') ? 'A1' : 'A2';
 
-        if (username) loadWords();
-    </script>
+        const allowed =
+          (activeLevel === 'A0' && (level === 'A0' || level === 'A1')) ||
+          (activeLevel === 'A1') ||
+          (activeLevel === 'A2' && (level === 'A2' || level === 'A1'));
+
+        btn.disabled = !allowed;
+      });
+    }
+  </script>
 </body>
 </html>
-
