@@ -2,7 +2,6 @@ const express = require("express");
 const http = require("http");
 const cors = require("cors");
 const { Server } = require("socket.io");
-const cron = require("node-cron");
 
 const app = express();
 const server = http.createServer(app);
@@ -62,11 +61,8 @@ io.on("connection", socket => {
   });
 });
 
-// Очищення таблиці гравців раз на добу
-cron.schedule("0 0 * * *", () => {
-  scores = {};
-  console.log("Очищено рейтинг гравців.");
-});
+// === ВАЖЛИВО ===
+// Видалено cron.schedule для очищення рейтингу!
 
 server.listen(3000, () => {
   console.log("Сервер працює на порті 3000");
