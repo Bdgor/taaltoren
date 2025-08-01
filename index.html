@@ -92,15 +92,9 @@
   </div>
 
   <script>
-    // Спроба підключення до сервера
-    let socket = null;
-    let serverOnline = false;
-    try {
-      socket = io("http://localhost:3000", {timeout: 2000});
-      serverOnline = true;
-    } catch (e) {
-      serverOnline = false;
-    }
+    // ПРАВИЛЬНА АДРЕСА ПІДКЛЮЧЕННЯ ДО RENDER
+    let socket = io("https://taaltoren.onrender.com");
+    let serverOnline = true;
 
     let allTowers = {};
     let allScores = {};
@@ -118,22 +112,20 @@
     let stormTimerLocal = null;
 
     // ===== ОНЛАЙН ОБРОБНИКИ =====
-    if (serverOnline && socket) {
-      socket.on("sync", ({ towers, scores }) => {
-        allTowers = towers || {};
-        allScores = scores || {};
-        updateTowersAndScores();
-      });
+    socket.on("sync", ({ towers, scores }) => {
+      allTowers = towers || {};
+      allScores = scores || {};
+      updateTowersAndScores();
+    });
 
-      socket.on("tick", ({ timer }) => {
-        serverTimer = timer;
-        updateStormCountdown(serverTimer);
-      });
+    socket.on("tick", ({ timer }) => {
+      serverTimer = timer;
+      updateStormCountdown(serverTimer);
+    });
 
-      socket.on("clear", () => {
-        triggerStorm();
-      });
-    }
+    socket.on("clear", () => {
+      triggerStorm();
+    });
 
     // ===== ЗБЕРЕЖЕННЯ ГРИ ПРИ ОНОВЛЕННІ =====
     if (playerName) {
@@ -172,7 +164,7 @@
       loadCSV(csvFile, isReload);
 
       // Таймер бурі: серверний або локальний
-      if (!serverOnline) startStormTimerLocal();
+      // (цей блок можна залишити для підтримки оффлайн, якщо сервер раптом недоступний)
     }
 
     function loadCSV(file, isReload = false) {
@@ -280,7 +272,6 @@
     function updateTowersAndScores() {
       const allTowersDiv = document.getElementById('all-towers');
       allTowersDiv.innerHTML = '';
-      if (!serverOnline) return;
       Object.keys(allTowers).forEach(user => {
         if (user === playerName) return;
         const blocks = allTowers[user].map(b => `<div class="block">${b.word}</div>`).join('');
