@@ -6,6 +6,7 @@
   <style>
     body { font-family: sans-serif; text-align: center; }
     button { margin: 5px; padding: 10px 20px; font-size: 16px; }
+    #tower { margin-bottom: 20px; }
     #tower .block {
       width: 100px;
       height: 20px;
@@ -17,7 +18,20 @@
       align-items: center;
       justify-content: center;
     }
-    .option-button { display: block; margin: 10px auto; padding: 10px 15px; font-size: 16px; cursor: pointer; }
+    .option-row {
+      display: flex;
+      flex-direction: row;
+      justify-content: center;
+      gap: 16px;
+      margin: 20px 0;
+    }
+    .option-button { 
+      margin: 0;
+      padding: 10px 15px;
+      font-size: 16px;
+      cursor: pointer;
+      min-width: 120px;
+    }
   </style>
 </head>
 <body>
@@ -36,12 +50,15 @@
   </div>
 
   <div id="game" style="display: none;">
+    <!-- Вежа зверху -->
+    <div id="tower"></div>
+
     <h3 id="level-display"></h3>
     <p><strong id="player-name"></strong></p>
     <p id="score-display"></p>
     <div id="question"></div>
-    <div id="options"></div>
-    <div id="tower"></div>
+    <!-- Варіанти у flex-рядку -->
+    <div id="options" class="option-row"></div>
   </div>
 
   <script>
@@ -91,6 +108,7 @@
           });
           shuffle(currentCSV);
           usedWords = [];
+          clearTower(); // Очищаємо вежу при старті рівня
           showNextWord();
         });
     }
