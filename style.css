@@ -26,6 +26,18 @@ button { margin: 5px; padding: 10px 20px; font-size: 16px; }
   cursor: pointer;
   min-width: 120px;
 }
+.option-button.correct {
+  background: #53cf47 !important;
+  color: #fff !important;
+}
+.option-button.wrong {
+  background: #f64e4e !important;
+  color: #fff !important;
+}
+.option-button[disabled] {
+  opacity: 0.8;
+  pointer-events: none;
+}
 #storm-timer {
   font-weight: bold;
   color: #b94a48;
