@@ -32,6 +32,12 @@
       cursor: pointer;
       min-width: 120px;
     }
+    #storm-timer {
+      font-weight: bold;
+      color: #b94a48;
+      margin-top: 10px;
+      margin-bottom: 10px;
+    }
   </style>
 </head>
 <body>
@@ -56,6 +62,7 @@
     <h3 id="level-display"></h3>
     <p><strong id="player-name"></strong></p>
     <p id="score-display"></p>
+    <p id="storm-timer"></p>
     <div id="question"></div>
     <!-- Варіанти у flex-рядку -->
     <div id="options" class="option-row"></div>
@@ -69,6 +76,37 @@
     let usedWords = [];
     let wrongAnswers = 0;
     let playerName = localStorage.getItem('taaltoren_username') || '';
+
+    // Таймер бурі
+    let stormTimer = null;
+    let stormInterval = 15 * 60 * 1000; // 15 хвилин
+    let stormCountdownInterval = null;
+
+    function startStormTimer() {
+      clearTimeout(stormTimer);
+      stormTimer = setTimeout(() => {
+        triggerStorm(true);
+      }, stormInterval);
+      updateStormCountdown();
+    }
+
+    function updateStormCountdown() {
+      clearInterval(stormCountdownInterval);
+      const timerElem = document.getElementById('storm-timer');
+      if (!timerElem) return;
+      let remaining = stormInterval / 1000; // в секундах
+      stormCountdownInterval = setInterval(() => {
+        if (remaining <= 0) {
+          timerElem.innerText = '';
+          clearInterval(stormCountdownInterval);
+          return;
+        }
+        let min = Math.floor(remaining / 60);
+        let sec = Math.floor(remaining % 60);
+        timerElem.innerText = `До бурі: ${min.toString().padStart(2,'0')}:${sec.toString().padStart(2,'0')}`;
+        remaining -= 1;
+      }, 1000);
+    }
 
     if (playerName) {
       document.getElementById('username-section').style.display = 'none';
@@ -95,6 +133,9 @@
 
       const csvFile = level === 'A0' ? 'words.csv' : level === 'A1' ? 'words2.csv' : 'words3.csv';
       loadCSV(csvFile);
+
+      // Запускаємо таймер бурі
+      startStormTimer();
     }
 
     function loadCSV(file) {
@@ -188,22 +229,30 @@
       return arr.join('');
     }
 
-    function triggerStorm() {
+    // Додано параметр isTimer
+    function triggerStorm(isTimer = false) {
       alert("Буря зруйнувала вашу вежу!");
       clearTower();
+      clearTimeout(stormTimer);
+      clearInterval(stormCountdownInterval);
+      document.getElementById('storm-timer').innerText = '';
 
       document.getElementById('game').style.display = 'none';
       document.getElementById('level-selection').style.display = 'block';
 
-      const buttons = document.querySelectorAll('#level-selection button');
-      const levelOrder = ['A0', 'A1', 'A2'];
-      const currentIndex = levelOrder.indexOf(activeLevel);
+      // Якщо буря не від таймера — блокуємо рівні, як раніше
+      if (!isTimer) {
+        const buttons = document.querySelectorAll('#level-selection button');
+        const levelOrder = ['A0', 'A1', 'A2'];
+        const currentIndex = levelOrder.indexOf(activeLevel);
 
-      buttons.forEach(btn => {
-        const level = btn.innerText.includes('A0') ? 'A0' : btn.innerText.includes('A1') ? 'A1' : 'A2';
-        const btnIndex = levelOrder.indexOf(level);
-        btn.disabled = Math.abs(btnIndex - currentIndex) > 1;
-      });
+        buttons.forEach(btn => {
+          const level = btn.innerText.includes('A0') ? 'A0' : btn.innerText.includes('A1') ? 'A1' : 'A2';
+          const btnIndex = levelOrder.indexOf(level);
+          btn.disabled = Math.abs(btnIndex - currentIndex) > 1;
+        });
+      }
+      // Таймер знову запуститься після вибору рівня
     }
   </script>
 </body>
