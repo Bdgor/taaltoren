@@ -7,11 +7,18 @@
     body { font-family: sans-serif; text-align: center; }
     button { margin: 5px; padding: 10px 20px; font-size: 16px; }
     #tower div { width: 100px; height: 20px; background: black; margin: 2px auto; }
+    .option-button { display: block; margin: 10px auto; padding: 10px 15px; font-size: 16px; cursor: pointer; }
   </style>
 </head>
 <body>
 
-  <div id="level-selection" style="margin-top: 50px;">
+  <div id="username-section" style="margin-top: 50px;">
+    <h2>Введіть ваше ім'я</h2>
+    <input type="text" id="username-input" placeholder="Ваше ім'я">
+    <button onclick="submitName()">Почати</button>
+  </div>
+
+  <div id="level-selection" style="display: none;">
     <h2>Виберіть рівень складності</h2>
     <button onclick="selectLevel('A0')">A0 (🔰 Початковий)</button>
     <button onclick="selectLevel('A1')">A1 (⚙️ Базовий)</button>
@@ -20,10 +27,10 @@
 
   <div id="game" style="display: none;">
     <h3 id="level-display"></h3>
+    <p><strong id="player-name"></strong></p>
     <p id="score-display"></p>
     <div id="question"></div>
-    <input type="text" id="answer" placeholder="Ваша відповідь">
-    <button onclick="checkAnswer()">Перевірити</button>
+    <div id="options"></div>
     <div id="tower"></div>
   </div>
 
@@ -34,6 +41,21 @@
     let currentCSV = [];
     let currentWordIndex = 0;
     let wrongAnswers = 0;
+    let playerName = localStorage.getItem('taaltoren_username') || '';
+
+    if (playerName) {
+      document.getElementById('username-section').style.display = 'none';
+      document.getElementById('level-selection').style.display = 'block';
+    }
+
+    function submitName() {
+      const nameInput = document.getElementById('username-input').value.trim();
+      if (!nameInput) return;
+      playerName = nameInput;
+      localStorage.setItem('taaltoren_username', playerName);
+      document.getElementById('username-section').style.display = 'none';
+      document.getElementById('level-selection').style.display = 'block';
+    }
 
     function selectLevel(level) {
       activeLevel = level;
@@ -41,6 +63,7 @@
       document.getElementById('level-selection').style.display = 'none';
       document.getElementById('game').style.display = 'block';
       document.getElementById('level-display').innerText = 'Рівень: ' + activeLevel;
+      document.getElementById('player-name').innerText = 'Гравець: ' + playerName;
       document.getElementById('score-display').innerText = 'Очки: ' + score;
 
       const csvFile = level === 'A0' ? 'words.csv' : level === 'A1' ? 'words2.csv' : 'words3.csv';
@@ -58,10 +81,6 @@
           });
           shuffle(currentCSV);
           showNextWord();
-
-          document.getElementById('answer').addEventListener('keydown', function (e) {
-            if (e.key === 'Enter') checkAnswer();
-          });
         });
     }
 
@@ -70,14 +89,25 @@
       currentWordIndex = Math.floor(Math.random() * currentCSV.length);
       const word = currentCSV[currentWordIndex];
       document.getElementById('question').innerText = `Перекласти: ${word.ua}`;
-      document.getElementById('answer').value = '';
+
+      const correct = word.nl;
+      const options = [correct, generateMistake(correct), generateMistake(correct)];
+      shuffle(options);
+
+      const optionsContainer = document.getElementById('options');
+      optionsContainer.innerHTML = '';
+      options.forEach(opt => {
+        const btn = document.createElement('button');
+        btn.innerText = opt;
+        btn.className = 'option-button';
+        btn.onclick = () => checkAnswer(opt);
+        optionsContainer.appendChild(btn);
+      });
     }
 
-    function checkAnswer() {
-      const answer = document.getElementById('answer').value.trim().toLowerCase();
-      const correct = currentCSV[currentWordIndex].nl.toLowerCase();
-
-      if (answer === correct) {
+    function checkAnswer(selected) {
+      const correct = currentCSV[currentWordIndex].nl;
+      if (selected === correct) {
         increaseScore();
         addBlock();
         wrongAnswers = 0;
@@ -88,7 +118,6 @@
           return;
         }
       }
-
       showNextWord();
     }
 
@@ -113,6 +142,14 @@
         const j = Math.floor(Math.random() * (i + 1));
         [array[i], array[j]] = [array[j], array[i]];
       }
+    }
+
+    function generateMistake(word) {
+      if (word.length < 2) return word + 'x';
+      let arr = word.split('');
+      let i = Math.floor(Math.random() * (word.length - 1));
+      [arr[i], arr[i + 1]] = [arr[i + 1], arr[i]]; // swap two letters
+      return arr.join('');
     }
 
     function triggerStorm() {
