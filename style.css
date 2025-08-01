@@ -1,16 +1,13 @@
-body { font-family: sans-serif; text-align: center; }
-button { margin: 5px; padding: 10px 20px; font-size: 16px; }
-#tower { margin-bottom: 20px; }
-#tower .block, .block {
-  width: 100px;
-  height: 20px;
-  background: #4caf50;
-  color: white;
-  font-weight: bold;
-  margin: 2px auto;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+body {
+  font-family: sans-serif;
+  text-align: center;
+  background: #f0f6fa;
+  margin: 0;
+}
+button {
+  margin: 5px;
+  padding: 10px 20px;
+  font-size: 16px;
 }
 .option-row {
   display: flex;
@@ -19,47 +16,64 @@ button { margin: 5px; padding: 10px 20px; font-size: 16px; }
   gap: 16px;
   margin: 20px 0;
 }
-.option-button { 
+.option-button {
   margin: 0;
   padding: 10px 15px;
   font-size: 16px;
   cursor: pointer;
   min-width: 120px;
+  border: 2px solid #ddd;
+  border-radius: 6px;
+  background: #fff;
+  transition: background 0.2s, border 0.2s, color 0.2s;
 }
 .option-button.correct {
-  background: #53cf47 !important;
-  color: #fff !important;
+  background: #5cc77c !important;
+  color: #fff;
+  border-color: #41b162;
 }
 .option-button.wrong {
-  background: #f64e4e !important;
-  color: #fff !important;
+  background: #f96d6d !important;
+  color: #fff;
+  border-color: #e13333;
 }
-.option-button[disabled] {
-  opacity: 0.8;
-  pointer-events: none;
+#puzzle-canvas {
+  display: grid;
+  grid-template-columns: repeat(10, 1fr);
+  grid-template-rows: repeat(10, 1fr);
+  width: 320px;
+  height: 200px;
+  margin: 0 auto 20px auto;
+  background: #222;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 2px 12px #0008;
+  position: relative;
 }
-#storm-timer {
-  font-weight: bold;
-  color: #b94a48;
-  margin-top: 10px;
-  margin-bottom: 10px;
+.puzzle-fragment {
+  width: 32px;
+  height: 20px;
+  box-sizing: border-box;
+  background-size: 320px 200px;
+  background-repeat: no-repeat;
+  opacity: 0.10;
+  transition: opacity 0.4s;
 }
-#rating, #session-rating {
-  margin-bottom: 30px;
+.puzzle-fragment.open {
+  opacity: 1;
+  border-radius: 1px;
 }
 #global-rating-corner {
   position: fixed;
   top: 10px;
-  right: 10px;
-  min-width: 240px;
-  z-index: 100;
-  background: #fff;
-  border-radius: 10px;
-  box-shadow: 0 2px 12px #8884;
-  padding: 10px 20px;
-  text-align: left;
-  opacity: 0.96;
+  right: 16px;
+  background: #e6f3ffef;
+  padding: 10px 18px 12px 18px;
+  border-radius: 14px;
+  box-shadow: 0 0 8px #3a638129;
+  z-index: 99;
+  min-width: 170px;
 }
-@media (max-width: 600px) {
-  #global-rating-corner { min-width: 140px; padding: 7px 4px; font-size:13px;}
+#session-rating {
+  margin-bottom: 30px;
 }
