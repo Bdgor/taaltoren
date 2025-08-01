@@ -3,48 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <title>TaalToren</title>
-  <style>
-    body { font-family: sans-serif; text-align: center; }
-    button { margin: 5px; padding: 10px 20px; font-size: 16px; }
-    #tower { margin-bottom: 20px; }
-    #tower .block, .block {
-      width: 100px;
-      height: 20px;
-      background: #4caf50;
-      color: white;
-      font-weight: bold;
-      margin: 2px auto;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-    .option-row {
-      display: flex;
-      flex-direction: row;
-      justify-content: center;
-      gap: 16px;
-      margin: 20px 0;
-    }
-    .option-button { 
-      margin: 0;
-      padding: 10px 15px;
-      font-size: 16px;
-      cursor: pointer;
-      min-width: 120px;
-    }
-    #storm-timer {
-      font-weight: bold;
-      color: #b94a48;
-      margin-top: 10px;
-      margin-bottom: 10px;
-    }
-    #rating, #session-rating {
-      margin-bottom: 30px;
-    }
-  </style>
+  <link rel="stylesheet" href="style.css">
   <script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
 </head>
 <body>
+
+  <div id="global-rating-corner"></div>
 
   <div id="username-section" style="margin-top: 50px;">
     <h2>Введіть ваше ім'я</h2>
@@ -60,19 +24,14 @@
   </div>
 
   <div id="game" style="display: none;">
-    <!-- Вежа зверху -->
     <div id="tower"></div>
-
     <h3 id="level-display"></h3>
     <p><strong id="player-name"></strong></p>
     <p id="score-display"></p>
     <p id="storm-timer"></p>
     <div id="question"></div>
-    <!-- Варіанти у flex-рядку -->
     <div id="options" class="option-row"></div>
-
     <div id="session-rating"></div>
-    <div id="rating"></div>
   </div>
 
   <script>
@@ -89,6 +48,7 @@
     let currentCSV = [];
     let usedWords = [];
     let playerName = localStorage.getItem('taaltoren_username') || '';
+    let wrongStreak = 0;
 
     // --- Таймер бурі ---
     socket.on("tick", ({ timer }) => {
@@ -150,6 +110,7 @@
       document.getElementById('player-name').innerText = 'Гравець: ' + playerName;
       document.getElementById('score-display').innerText = 'Очки: ' + score;
 
+      wrongStreak = 0;
       const csvFile = level === 'A0' ? 'words.csv' : level === 'A1' ? 'words2.csv' : 'words3.csv';
       loadCSV(csvFile, isReload);
     }
@@ -198,10 +159,13 @@
     function checkAnswer(selected, correct, word) {
       if (selected === correct) {
         increaseScore();
+        wrongStreak = 0;
         usedWords.push(word.nl);
         addBlock(word.nl);
       } else {
-        score = Math.max(0, score - 1);
+        wrongStreak++;
+        let minus = wrongStreak < 3 ? 1 : 2;
+        score = Math.max(0, score - minus);
         scores[activeLevel] = score;
         localStorage.setItem('taaltoren_scores', JSON.stringify(scores));
         document.getElementById('score-display').innerText = 'Очки: ' + score;
@@ -216,7 +180,6 @@
       document.getElementById('score-display').innerText = 'Очки: ' + score;
     }
 
-    // Додаємо блок (локально + онлайн якщо сервер працює)
     function addBlock(word) {
       const block = document.createElement('div');
       block.className = 'block';
@@ -257,21 +220,21 @@
     }
 
     function updateTowersAndScores() {
-      // Рейтинг глобальний
-      const ratingDiv = document.getElementById('rating');
-      let lvl = activeLevel || 'A0';
-      let sortedGlobal = Object.entries(allScoresGlobal[lvl] || {}).sort((a, b) => b[1] - a[1]);
-      ratingDiv.innerHTML = `<h4>Глобальний рейтинг (${lvl})</h4>` +
-        sortedGlobal.map(([user, sc], idx) =>
-          `<div>${idx + 1}. ${user}: <b>${sc}</b></div>`
-        ).join('');
-
-      // Рейтинг сесії
+      // Сесійний рейтинг у грі
       const sessionDiv = document.getElementById('session-rating');
+      let lvl = activeLevel || 'A0';
       let sortedSession = Object.entries(allScoresSession[lvl] || {}).sort((a, b) => b[1] - a[1]);
       sessionDiv.innerHTML = `<h4>Рейтинг цієї сесії (${lvl})</h4>` +
         sortedSession.map(([user, sc], idx) =>
           `<div>${idx + 1}. ${user}: <b>${sc}</b></div>`
+        ).join('');
+
+      // Глобальний рейтинг у кутку
+      const cornerDiv = document.getElementById('global-rating-corner');
+      let sortedGlobal = Object.entries(allScoresGlobal[lvl] || {}).sort((a, b) => b[1] - a[1]);
+      cornerDiv.innerHTML = `<h4 style="margin:0 0 8px 0">Глобальний рейтинг (${lvl})</h4>` +
+        sortedGlobal.map(([user, sc], idx) =>
+          `<div style="font-size:15px">${idx + 1}. ${user}: <b>${sc}</b></div>`
         ).join('');
     }
   </script>
