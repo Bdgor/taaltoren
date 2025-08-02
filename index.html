@@ -11,8 +11,8 @@
   <div id="global-rating-corner"></div>
 
   <div id="username-section" style="margin-top: 50px;">
-    <h2>Введіть ваше ім'я</h2>
-    <input type="text" id="username-input" placeholder="Ваше ім'я">
+    <h2>Введіть унікальний логін</h2>
+    <input type="text" id="username-input" placeholder="Ваш логін">
     <button onclick="submitName()">Почати</button>
   </div>
 
@@ -38,12 +38,8 @@
     // --- Пазл налаштування ---
     const PUZZLE_W = 10, PUZZLE_H = 10;
     const puzzleImages = [
-      "puzzle1.jpg",
-      "puzzle2.jpg",
-      "puzzle3.jpg",
-      "puzzle4.jpg",
-      "puzzle5.jpg",
-      "puzzle6.jpg"
+      "puzzle1.jpg", "puzzle2.jpg", "puzzle3.jpg",
+      "puzzle4.jpg", "puzzle5.jpg", "puzzle6.jpg"
     ];
     let puzzleImg = puzzleImages[0];
     let puzzleProgress = 0;
@@ -66,7 +62,7 @@
     }
 
     // --- Стандартна логіка гри ---
-    let socket = io("https://taaltoren.onrender.com");
+    let socket = io();
 
     let allScoresSession = { A0: {}, A1: {}, A2: {} };
     let allScoresGlobal  = { A0: {}, A1: {}, A2: {} };
@@ -121,14 +117,17 @@
     function submitName() {
       const nameInput = document.getElementById('username-input').value.trim();
       if (!nameInput) return;
-      playerName = nameInput;
-      localStorage.setItem('taaltoren_username', playerName);
-      document.getElementById('username-section').style.display = 'none';
-      if (activeLevel) {
-        selectLevel(activeLevel, true);
-      } else {
+      // Реєстрація логіна на сервері
+      socket.emit("register-user", nameInput, function(res) {
+        if (!res.ok) {
+          alert(res.msg);
+          return;
+        }
+        playerName = nameInput;
+        localStorage.setItem('taaltoren_username', playerName);
+        document.getElementById('username-section').style.display = 'none';
         document.getElementById('level-selection').style.display = 'block';
-      }
+      });
     }
 
     function selectLevel(level, isReload = false) {
