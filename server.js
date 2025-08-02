@@ -2,6 +2,8 @@ const express = require("express");
 const http = require("http");
 const cors = require("cors");
 const { Server } = require("socket.io");
+const fs = require("fs");
+const path = require("path");
 
 const app = express();
 const server = http.createServer(app);
@@ -15,8 +17,42 @@ const io = new Server(server, {
 app.use(cors());
 app.use(express.static("public"));
 
+const GLOBAL_FILE = path.join(__dirname, "global_scores.json");
+const USERS_FILE = path.join(__dirname, "users.json");
+
+// --- Збереження та читання глобального рейтингу ---
+function loadGlobalScores() {
+  try {
+    if (fs.existsSync(GLOBAL_FILE)) {
+      return JSON.parse(fs.readFileSync(GLOBAL_FILE, "utf-8"));
+    }
+  } catch (e) {}
+  return { A0: {}, A1: {}, A2: {} };
+}
+function saveGlobalScores(scoresGlobal) {
+  try {
+    fs.writeFileSync(GLOBAL_FILE, JSON.stringify(scoresGlobal, null, 2), "utf-8");
+  } catch (e) {}
+}
+// --- Збереження та читання логінів ---
+function loadUsers() {
+  try {
+    if (fs.existsSync(USERS_FILE)) {
+      return JSON.parse(fs.readFileSync(USERS_FILE, "utf-8"));
+    }
+  } catch (e) {}
+  return {};
+}
+function saveUsers(users) {
+  try {
+    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2), "utf-8");
+  } catch (e) {}
+}
+
 let scoresSession = { A0: {}, A1: {}, A2: {} };
-let scoresGlobal = { A0: {}, A1: {}, A2: {} };
+let scoresGlobal = loadGlobalScores();
+let registeredUsers = loadUsers();
+
 let timer = 900;
 let interval = null;
 
@@ -35,7 +71,18 @@ function startTimer() {
 }
 
 io.on("connection", socket => {
-  console.log("Користувач під'єднався:", socket.id);
+  // --- Обробка реєстрації логіна (унікальність) ---
+  socket.on("register-user", (login, callback) => {
+    const loginKey = login.trim().toLowerCase();
+    if (!loginKey) return callback({ ok: false, msg: "Порожній логін" });
+    if (registeredUsers[loginKey]) {
+      return callback({ ok: false, msg: "Логін уже зайнятий!" });
+    }
+    registeredUsers[loginKey] = true;
+    saveUsers(registeredUsers);
+    callback({ ok: true });
+  });
+
   socket.emit("sync", { scoresSession, scoresGlobal });
   socket.emit("tick", { timer });
   startTimer();
@@ -43,34 +90,4 @@ io.on("connection", socket => {
   socket.on("add-block", data => {
     const { user, level } = data;
     if (!user || !level) return;
-    // Сесійний рейтинг
-    if (!scoresSession[level][user]) scoresSession[level][user] = 0;
-    scoresSession[level][user]++;
-    // Глобальний рейтинг
-    if (!scoresGlobal[level][user]) scoresGlobal[level][user] = 0;
-    scoresGlobal[level][user]++;
-    io.emit("sync", { scoresSession, scoresGlobal });
-  });
-
-  // === Ось ця обробка для віднімання балів! ===
-  socket.on("sub-block", data => {
-    const { user, level, minus } = data;
-    if (!user || !level) return;
-    let m = Math.abs(Number(minus) || 1);
-    // Сесійний рейтинг
-    if (!scoresSession[level][user]) scoresSession[level][user] = 0;
-    scoresSession[level][user] = Math.max(0, scoresSession[level][user] - m);
-    // Глобальний рейтинг
-    if (!scoresGlobal[level][user]) scoresGlobal[level][user] = 0;
-    scoresGlobal[level][user] = Math.max(0, scoresGlobal[level][user] - m);
-    io.emit("sync", { scoresSession, scoresGlobal });
-  });
-
-  socket.on("disconnect", () => {
-    console.log("Користувач вийшов:", socket.id);
-  });
-});
-
-server.listen(3000, () => {
-  console.log("Сервер працює на порті 3000");
-});
+    if (!scoresSession[level][user]) scoresSession[level][user]()
