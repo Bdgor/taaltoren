@@ -174,7 +174,9 @@
       if (availableWords.length === 0) return;
       const word = availableWords[Math.floor(Math.random() * availableWords.length)];
 
-      document.getElementById('question').innerText = `Перекласти: ${word.ua}`;
+      // Кнопка для озвучення ВІРНОГО слова (нідерландською)
+      document.getElementById('question').innerHTML =
+        `Перекласти: ${word.ua} <button onclick="speakText('${word.nl}', 'nl-NL')" style="font-size:18px; margin-left:5px;">🔊</button>`;
 
       const correct = word.nl;
       const options = [correct, generateMistake(correct), generateMistake(correct)];
@@ -196,6 +198,8 @@
 
       if (selected === correct) {
         clickedBtn.classList.add('correct');
+        // Озвучуємо правильне слово
+        speakText(correct, 'nl-NL');
         setTimeout(() => {
           increaseScore();
           wrongStreak = 0;
@@ -279,6 +283,14 @@
         sortedGlobal.map(([user, sc], idx) =>
           `<div style="font-size:15px">${idx + 1}. ${user}: <b>${sc}</b></div>`
         ).join('');
+    }
+
+    // --- Функція озвучення ---
+    function speakText(text, lang='nl-NL') {
+      if (!window.speechSynthesis) return;
+      let utter = new window.SpeechSynthesisUtterance(text);
+      utter.lang = lang;
+      window.speechSynthesis.speak(utter);
     }
   </script>
 </body>
