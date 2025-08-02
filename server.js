@@ -88,13 +88,33 @@ io.on("connection", socket => {
   startTimer();
 
   socket.on("add-block", data => {
-  const { user, level } = data;
-  if (!user || !level) return;
-  if (!scoresSession[level][user]) scoresSession[level][user] = 0;
-  scoresSession[level][user]++;
-  if (!scoresGlobal[level][user]) scoresGlobal[level][user] = 0;
-  scoresGlobal[level][user]++;
-  saveGlobalScores(scoresGlobal);
-  io.emit("sync", { scoresSession, scoresGlobal });
+    const { user, level } = data;
+    if (!user || !level) return;
+    if (!scoresSession[level][user]) scoresSession[level][user] = 0;
+    scoresSession[level][user]++;
+    if (!scoresGlobal[level][user]) scoresGlobal[level][user] = 0;
+    scoresGlobal[level][user]++;
+    saveGlobalScores(scoresGlobal);
+    io.emit("sync", { scoresSession, scoresGlobal });
+  });
+
+  socket.on("sub-block", data => {
+    const { user, level, minus } = data;
+    if (!user || !level) return;
+    let m = Math.abs(Number(minus) || 1);
+    if (!scoresSession[level][user]) scoresSession[level][user] = 0;
+    scoresSession[level][user] = Math.max(0, scoresSession[level][user] - m);
+    if (!scoresGlobal[level][user]) scoresGlobal[level][user] = 0;
+    scoresGlobal[level][user] = Math.max(0, scoresGlobal[level][user] - m);
+    saveGlobalScores(scoresGlobal);
+    io.emit("sync", { scoresSession, scoresGlobal });
+  });
+
+  socket.on("disconnect", () => {
+    // Не видаляємо логін з users.json — тільки якщо хочеш вручну
+  });
 });
 
+server.listen(3000, () => {
+  console.log("Сервер працює на порті 3000");
+});
