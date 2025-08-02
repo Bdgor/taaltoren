@@ -17,6 +17,7 @@ const io = new Server(server, {
 app.use(cors());
 app.use(express.static("public"));
 
+// --- Файли для зберігання рейтингу і логінів ---
 const GLOBAL_FILE = path.join(__dirname, "global_scores.json");
 const USERS_FILE = path.join(__dirname, "users.json");
 
@@ -34,6 +35,7 @@ function saveGlobalScores(scoresGlobal) {
     fs.writeFileSync(GLOBAL_FILE, JSON.stringify(scoresGlobal, null, 2), "utf-8");
   } catch (e) {}
 }
+
 // --- Збереження та читання логінів ---
 function loadUsers() {
   try {
@@ -49,6 +51,7 @@ function saveUsers(users) {
   } catch (e) {}
 }
 
+// --- Ініціалізація змінних ---
 let scoresSession = { A0: {}, A1: {}, A2: {} };
 let scoresGlobal = loadGlobalScores();
 let registeredUsers = loadUsers();
@@ -56,6 +59,7 @@ let registeredUsers = loadUsers();
 let timer = 900;
 let interval = null;
 
+// --- Таймер сесії ---
 function startTimer() {
   if (interval) return;
   interval = setInterval(() => {
@@ -70,8 +74,9 @@ function startTimer() {
   }, 1000);
 }
 
+// --- WebSocket логіка ---
 io.on("connection", socket => {
-  // --- Обробка реєстрації логіна (унікальність) ---
+  // --- Унікальний логін ---
   socket.on("register-user", (login, callback) => {
     const loginKey = login.trim().toLowerCase();
     if (!loginKey) return callback({ ok: false, msg: "Порожній логін" });
@@ -87,6 +92,7 @@ io.on("connection", socket => {
   socket.emit("tick", { timer });
   startTimer();
 
+  // --- Додавання балів ---
   socket.on("add-block", data => {
     const { user, level } = data;
     if (!user || !level) return;
@@ -98,6 +104,7 @@ io.on("connection", socket => {
     io.emit("sync", { scoresSession, scoresGlobal });
   });
 
+  // --- Віднімання балів ---
   socket.on("sub-block", data => {
     const { user, level, minus } = data;
     if (!user || !level) return;
@@ -115,6 +122,8 @@ io.on("connection", socket => {
   });
 });
 
-server.listen(3000, () => {
-  console.log("Сервер працює на порті 3000");
+// --- Запуск сервера ---
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+  console.log("Сервер працює на порті " + PORT);
 });
