@@ -88,6 +88,13 @@ io.on("connection", socket => {
   startTimer();
 
   socket.on("add-block", data => {
-    const { user, level } = data;
-    if (!user || !level) return;
-    if (!scoresSession[level][user]) scoresSession[level][user]()
+  const { user, level } = data;
+  if (!user || !level) return;
+  if (!scoresSession[level][user]) scoresSession[level][user] = 0;
+  scoresSession[level][user]++;
+  if (!scoresGlobal[level][user]) scoresGlobal[level][user] = 0;
+  scoresGlobal[level][user]++;
+  saveGlobalScores(scoresGlobal);
+  io.emit("sync", { scoresSession, scoresGlobal });
+});
+
