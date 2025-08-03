@@ -5,6 +5,7 @@ const { Server } = require("socket.io");
 const fs = require("fs");
 const path = require("path");
 const connection = require('./db');
+const bcrypt = require('bcrypt');
 
 const app = express();
 const server = http.createServer(app);
@@ -17,12 +18,13 @@ const io = new Server(server, {
 
 app.use(cors());
 app.use(express.static("public"));
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-// --- Файли для зберігання рейтингу і логінів ---
+// --- Файли для зберігання рейтингу і логінів (залишаємо поки що, якщо треба міграція — перенесемо в MySQL) ---
 const GLOBAL_FILE = path.join(__dirname, "global_scores.json");
 const USERS_FILE = path.join(__dirname, "users.json");
 
-// --- Збереження та читання глобального рейтингу ---
 function loadGlobalScores() {
   try {
     if (fs.existsSync(GLOBAL_FILE)) {
@@ -36,8 +38,6 @@ function saveGlobalScores(scoresGlobal) {
     fs.writeFileSync(GLOBAL_FILE, JSON.stringify(scoresGlobal, null, 2), "utf-8");
   } catch (e) {}
 }
-
-// --- Збереження та читання логінів ---
 function loadUsers() {
   try {
     if (fs.existsSync(USERS_FILE)) {
@@ -52,7 +52,6 @@ function saveUsers(users) {
   } catch (e) {}
 }
 
-// --- Ініціалізація змінних ---
 let scoresSession = { A0: {}, A1: {}, A2: {} };
 let scoresGlobal = loadGlobalScores();
 let registeredUsers = loadUsers();
@@ -60,14 +59,13 @@ let registeredUsers = loadUsers();
 let timer = 900;
 let interval = null;
 
-// --- Таймер сесії ---
 function startTimer() {
   if (interval) return;
   interval = setInterval(() => {
     timer--;
     io.emit("tick", { timer });
     if (timer <= 0) {
-      scoresSession = { A0: {}, A1: {}, A2: {} }; // Скидаємо лише сесійний рахунок
+      scoresSession = { A0: {}, A1: {}, A2: {} };
       timer = 900;
       io.emit("clear");
       io.emit("sync", { scoresSession, scoresGlobal });
@@ -77,7 +75,7 @@ function startTimer() {
 
 // --- WebSocket логіка ---
 io.on("connection", socket => {
-  // --- Унікальний логін ---
+  // --- Стара логіка реєстрації в json ---
   socket.on("register-user", (login, callback) => {
     const loginKey = login.trim().toLowerCase();
     if (!loginKey) return callback({ ok: false, msg: "Порожній логін" });
@@ -93,7 +91,6 @@ io.on("connection", socket => {
   socket.emit("tick", { timer });
   startTimer();
 
-  // --- Додавання балів ---
   socket.on("add-block", data => {
     const { user, level } = data;
     if (!user || !level) return;
@@ -105,7 +102,6 @@ io.on("connection", socket => {
     io.emit("sync", { scoresSession, scoresGlobal });
   });
 
-  // --- Віднімання балів ---
   socket.on("sub-block", data => {
     const { user, level, minus } = data;
     if (!user || !level) return;
@@ -118,15 +114,40 @@ io.on("connection", socket => {
     io.emit("sync", { scoresSession, scoresGlobal });
   });
 
-  socket.on("disconnect", () => {
-    // Не видаляємо логін з users.json — тільки якщо хочеш вручну
-  });
+  socket.on("disconnect", () => {});
 });
 
-// --- Запуск сервера ---
-const PORT = process.env.PORT || 3000;
+// --- Реєстрація користувача через API + MySQL ---
+app.post('/api/register', async (req, res) => {
+  const { username, email, password } = req.body;
+  if (!username || !email || !password)
+    return res.status(400).json({ ok: false, msg: 'Всі поля обовʼязкові' });
+
+  connection.query(
+    'SELECT id FROM users WHERE username=? OR email=?',
+    [username, email],
+    async (err, results) => {
+      if (err) return res.status(500).json({ ok: false, msg: 'DB error' });
+      if (results.length > 0)
+        return res.status(400).json({ ok: false, msg: 'Логін або e-mail вже існує' });
+
+      const hashedPassword = await bcrypt.hash(password, 10);
+
+      connection.query(
+        'INSERT INTO users (username, email, password) VALUES (?, ?, ?)',
+        [username, email, hashedPassword],
+        (err2, result) => {
+          if (err2) return res.status(500).json({ ok: false, msg: 'DB error' });
+          return res.json({ ok: true, msg: 'Користувача зареєстровано' });
+        }
+      );
+    }
+  );
+});
+
+// --- Тестовий роут для перевірки MySQL ---
 app.get('/test-mysql', (req, res) => {
-  db.query('SELECT 1 + 1 AS solution', (err, results) => {
+  connection.query('SELECT 1 + 1 AS solution', (err, results) => {
     if (err) {
       res.status(500).send('Помилка MySQL: ' + err.message);
       return;
@@ -135,3 +156,8 @@ app.get('/test-mysql', (req, res) => {
   });
 });
 
+// --- Запуск сервера ---
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+  console.log("Сервер працює на порті " + PORT);
+});
