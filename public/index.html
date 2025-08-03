@@ -10,7 +10,20 @@
 
   <div id="global-rating-corner"></div>
 
-  <div id="username-section" style="margin-top: 50px;">
+  <!-- Блок реєстрації -->
+  <div id="register-section" style="margin-top: 40px;">
+    <h2>Реєстрація</h2>
+    <form id="registerForm" style="display:flex;flex-direction:column;max-width:320px;gap:10px;">
+      <input type="text" name="username" placeholder="Логін" required>
+      <input type="email" name="email" placeholder="E-mail" required>
+      <input type="password" name="password" placeholder="Пароль" required>
+      <button type="submit">Зареєструватись</button>
+      <div id="reg-msg" style="color:green"></div>
+    </form>
+  </div>
+
+  <!-- Блок логіна (для входу у гру, після реєстрації) -->
+  <div id="username-section" style="margin-top: 50px; display:none;">
     <h2>Введіть унікальний логін</h2>
     <input type="text" id="username-input" placeholder="Ваш логін">
     <button onclick="submitName()">Почати</button>
@@ -34,268 +47,291 @@
     <div id="session-rating"></div>
   </div>
 
-  <script>
-    // --- Пазл налаштування ---
-    const PUZZLE_W = 10, PUZZLE_H = 10;
-    const puzzleImages = [
-      "puzzle1.jpg", "puzzle2.jpg", "puzzle3.jpg",
-      "puzzle4.jpg", "puzzle5.jpg", "puzzle6.jpg"
-    ];
-    let puzzleImg = puzzleImages[0];
-    let puzzleProgress = 0;
+<script>
+  // --- Форма реєстрації (відправка на backend) ---
+  document.getElementById('registerForm').onsubmit = async function(e) {
+    e.preventDefault();
+    const form = e.target;
+    const body = {
+      username: form.username.value,
+      email: form.email.value,
+      password: form.password.value
+    };
+    const regMsg = document.getElementById('reg-msg');
+    regMsg.innerText = 'Реєстрація...';
+    const res = await fetch('/api/register', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    regMsg.innerText = data.msg;
+    if (data.ok) {
+      setTimeout(() => {
+        document.getElementById('register-section').style.display = 'none';
+        document.getElementById('username-section').style.display = '';
+        document.getElementById('username-input').value = form.username.value;
+      }, 900);
+    } else {
+      regMsg.style.color = 'red';
+      setTimeout(() => regMsg.style.color = 'green', 2000);
+    }
+  };
 
-    function renderPuzzle() {
-      const canvas = document.getElementById('puzzle-canvas');
-      if (!canvas) return;
-      canvas.innerHTML = '';
-      let frag = 0;
-      for (let y = 0; y < PUZZLE_H; y++) {
-        for (let x = 0; x < PUZZLE_W; x++) {
-          const div = document.createElement('div');
-          div.className = 'puzzle-fragment' + (frag < puzzleProgress ? ' open' : '');
-          div.style.backgroundImage = `url('${puzzleImg}')`;
-          div.style.backgroundPosition = `-${x*32}px -${y*20}px`;
-          canvas.appendChild(div);
-          frag++;
-        }
+  // --- Пазл налаштування ---
+  const PUZZLE_W = 10, PUZZLE_H = 10;
+  const puzzleImages = [
+    "puzzle1.jpg", "puzzle2.jpg", "puzzle3.jpg",
+    "puzzle4.jpg", "puzzle5.jpg", "puzzle6.jpg"
+  ];
+  let puzzleImg = puzzleImages[0];
+  let puzzleProgress = 0;
+
+  function renderPuzzle() {
+    const canvas = document.getElementById('puzzle-canvas');
+    if (!canvas) return;
+    canvas.innerHTML = '';
+    let frag = 0;
+    for (let y = 0; y < PUZZLE_H; y++) {
+      for (let x = 0; x < PUZZLE_W; x++) {
+        const div = document.createElement('div');
+        div.className = 'puzzle-fragment' + (frag < puzzleProgress ? ' open' : '');
+        div.style.backgroundImage = `url('${puzzleImg}')`;
+        div.style.backgroundPosition = `-${x*32}px -${y*20}px`;
+        canvas.appendChild(div);
+        frag++;
       }
     }
+  }
 
-    // --- Стандартна логіка гри ---
-    let socket = io("https://taaltoren.onrender.com");
+  // --- Стандартна логіка гри ---
+  let socket = io();
 
-    let allScoresSession = { A0: {}, A1: {}, A2: {} };
-    let allScoresGlobal  = { A0: {}, A1: {}, A2: {} };
-    let lastServerTimer = 900;
-    let lastServerTimeUpdate = Date.now();
+  let allScoresSession = { A0: {}, A1: {}, A2: {} };
+  let allScoresGlobal  = { A0: {}, A1: {}, A2: {} };
+  let lastServerTimer = 900;
+  let lastServerTimeUpdate = Date.now();
 
-    let scores = JSON.parse(localStorage.getItem('taaltoren_scores')) || { A0: 0, A1: 0, A2: 0 };
-    let activeLevel = localStorage.getItem('taaltoren_activeLevel') || null;
-    let score = 0;
-    let currentCSV = [];
-    let usedWords = [];
-    let playerName = localStorage.getItem('taaltoren_username') || '';
-    let wrongStreak = 0;
+  let scores = JSON.parse(localStorage.getItem('taaltoren_scores')) || { A0: 0, A1: 0, A2: 0 };
+  let activeLevel = localStorage.getItem('taaltoren_activeLevel') || null;
+  let score = 0;
+  let currentCSV = [];
+  let usedWords = [];
+  let playerName = localStorage.getItem('taaltoren_username') || '';
+  let wrongStreak = 0;
 
-    // --- Таймер бурі ---
-    socket.on("tick", ({ timer }) => {
-      lastServerTimer = timer;
-      lastServerTimeUpdate = Date.now();
-    });
+  // --- Таймер бурі ---
+  socket.on("tick", ({ timer }) => {
+    lastServerTimer = timer;
+    lastServerTimeUpdate = Date.now();
+  });
 
-    setInterval(() => {
-      const elapsed = Math.floor((Date.now() - lastServerTimeUpdate) / 1000);
-      const left = Math.max(0, lastServerTimer - elapsed);
-      const timerElem = document.getElementById('storm-timer');
-      if (timerElem) {
-        let min = Math.floor(left / 60);
-        let sec = Math.floor(left % 60);
-        timerElem.innerText = `До бурі: ${min.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`;
+  setInterval(() => {
+    const elapsed = Math.floor((Date.now() - lastServerTimeUpdate) / 1000);
+    const left = Math.max(0, lastServerTimer - elapsed);
+    const timerElem = document.getElementById('storm-timer');
+    if (timerElem) {
+      let min = Math.floor(left / 60);
+      let sec = Math.floor(left % 60);
+      timerElem.innerText = `До бурі: ${min.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`;
+    }
+  }, 1000);
+
+  socket.on("clear", () => {
+    triggerStorm();
+  });
+
+  socket.on("sync", ({ scoresSession, scoresGlobal }) => {
+    allScoresSession = scoresSession || { A0: {}, A1: {}, A2: {} };
+    allScoresGlobal  = scoresGlobal  || { A0: {}, A1: {}, A2: {} };
+    updateTowersAndScores();
+  });
+
+  // --- Збереження гри при оновленні ---
+  if (playerName) {
+    document.getElementById('register-section').style.display = 'none';
+    document.getElementById('username-section').style.display = 'none';
+    if (activeLevel) {
+      selectLevel(activeLevel, true);
+    } else {
+      document.getElementById('level-selection').style.display = 'block';
+    }
+  }
+
+  function submitName() {
+    const nameInput = document.getElementById('username-input').value.trim();
+    if (!nameInput) return;
+    // Реєстрація логіна на сервері через сокет
+    socket.emit("register-user", nameInput, function(res) {
+      if (!res.ok) {
+        alert(res.msg);
+        return;
       }
-    }, 1000);
-
-    socket.on("clear", () => {
-      triggerStorm();
-    });
-
-    socket.on("sync", ({ scoresSession, scoresGlobal }) => {
-      allScoresSession = scoresSession || { A0: {}, A1: {}, A2: {} };
-      allScoresGlobal  = scoresGlobal  || { A0: {}, A1: {}, A2: {} };
-      updateTowersAndScores();
-    });
-
-    // --- Збереження гри при оновленні ---
-    if (playerName) {
+      playerName = nameInput;
+      localStorage.setItem('taaltoren_username', playerName);
       document.getElementById('username-section').style.display = 'none';
-      if (activeLevel) {
-        selectLevel(activeLevel, true);
-      } else {
-        document.getElementById('level-selection').style.display = 'block';
-      }
-    }
+      document.getElementById('level-selection').style.display = 'block';
+    });
+  }
 
-    function submitName() {
-      const nameInput = document.getElementById('username-input').value.trim();
-      if (!nameInput) return;
-      // Реєстрація логіна на сервері
-      socket.emit("register-user", nameInput, function(res) {
-        if (!res.ok) {
-          alert(res.msg);
-          return;
-        }
-        playerName = nameInput;
-        localStorage.setItem('taaltoren_username', playerName);
-        document.getElementById('username-section').style.display = 'none';
-        document.getElementById('level-selection').style.display = 'block';
-      });
-    }
+  function selectLevel(level, isReload = false) {
+    activeLevel = level;
+    localStorage.setItem('taaltoren_activeLevel', activeLevel);
+    score = scores[activeLevel] || 0;
+    document.getElementById('level-selection').style.display = 'none';
+    document.getElementById('game').style.display = 'block';
+    document.getElementById('level-display').innerText = 'Рівень: ' + activeLevel;
+    document.getElementById('player-name').innerText = 'Гравець: ' + playerName;
+    document.getElementById('score-display').innerText = 'Очки: ' + score;
 
-    function selectLevel(level, isReload = false) {
-      activeLevel = level;
-      localStorage.setItem('taaltoren_activeLevel', activeLevel);
-      score = scores[activeLevel] || 0;
-      document.getElementById('level-selection').style.display = 'none';
-      document.getElementById('game').style.display = 'block';
-      document.getElementById('level-display').innerText = 'Рівень: ' + activeLevel;
-      document.getElementById('player-name').innerText = 'Гравець: ' + playerName;
-      document.getElementById('score-display').innerText = 'Очки: ' + score;
+    wrongStreak = 0;
 
-      wrongStreak = 0;
+    puzzleImg = puzzleImages[Math.floor(Math.random() * puzzleImages.length)];
+    puzzleProgress = 0;
+    renderPuzzle();
 
-      // --- Випадкова картинка пазлу ---
-      puzzleImg = puzzleImages[Math.floor(Math.random() * puzzleImages.length)];
-      puzzleProgress = 0;
-      renderPuzzle();
+    const csvFile = level === 'A0' ? 'words.csv' : level === 'A1' ? 'words2.csv' : 'words3.csv';
+    loadCSV(csvFile, isReload);
+  }
 
-      const csvFile = level === 'A0' ? 'words.csv' : level === 'A1' ? 'words2.csv' : 'words3.csv';
-      loadCSV(csvFile, isReload);
-    }
-
-    function loadCSV(file, isReload = false) {
-      fetch(file)
-        .then(res => res.text())
-        .then(text => {
-          const lines = text.trim().split('\n');
-          currentCSV = lines.map(line => {
-            const parts = line.split(',');
-            const ua = parts[0] ? parts[0].trim() : '';
-            const nl = parts[1] ? parts[1].trim() : '';
-            return { ua, nl };
-          });
-          shuffle(currentCSV);
-          usedWords = [];
-          if (!isReload) renderPuzzle();
-          showNextWord();
+  function loadCSV(file, isReload = false) {
+    fetch(file)
+      .then(res => res.text())
+      .then(text => {
+        const lines = text.trim().split('\n');
+        currentCSV = lines.map(line => {
+          const parts = line.split(',');
+          const ua = parts[0] ? parts[0].trim() : '';
+          const nl = parts[1] ? parts[1].trim() : '';
+          return { ua, nl };
         });
-    }
-
-    function showNextWord() {
-      const availableWords = currentCSV.filter(word => !usedWords.includes(word.nl));
-      if (availableWords.length === 0) return;
-      const word = availableWords[Math.floor(Math.random() * availableWords.length)];
-
-      // Кнопка для озвучення ВІРНОГО слова (нідерландською)
-      document.getElementById('question').innerHTML =
-        `Перекласти: ${word.ua} <button onclick="speakText('${word.nl}', 'nl-NL')" style="font-size:18px; margin-left:5px;">🔊</button>`;
-
-      const correct = word.nl;
-      const options = [correct, generateMistake(correct), generateMistake(correct)];
-      shuffle(options);
-
-      const optionsContainer = document.getElementById('options');
-      optionsContainer.innerHTML = '';
-      options.forEach(opt => {
-        const btn = document.createElement('button');
-        btn.innerText = opt;
-        btn.className = 'option-button';
-        btn.onclick = () => handleAnswer(btn, opt, correct, word, optionsContainer, options);
-        optionsContainer.appendChild(btn);
+        shuffle(currentCSV);
+        usedWords = [];
+        if (!isReload) renderPuzzle();
+        showNextWord();
       });
-    }
+  }
 
-    function handleAnswer(clickedBtn, selected, correct, word, optionsContainer, options) {
-      Array.from(optionsContainer.children).forEach(btn => btn.disabled = true);
+  function showNextWord() {
+    const availableWords = currentCSV.filter(word => !usedWords.includes(word.nl));
+    if (availableWords.length === 0) return;
+    const word = availableWords[Math.floor(Math.random() * availableWords.length)];
 
-      if (selected === correct) {
-        clickedBtn.classList.add('correct');
-        // Озвучуємо правильне слово
-        speakText(correct, 'nl-NL');
-        setTimeout(() => {
-          increaseScore();
-          wrongStreak = 0;
-          usedWords.push(word.nl);
-          puzzleProgress++;
-          renderPuzzle();
-          addBlock(word.nl);
-          showNextWord();
-        }, 1000); // 1 сек
-      } else {
-        clickedBtn.classList.add('wrong');
-        Array.from(optionsContainer.children).forEach(btn => {
-          if (btn.innerText === correct) btn.classList.add('correct');
-        });
-        wrongStreak++;
-        let minus = wrongStreak < 3 ? 1 : 2;
-        score = Math.max(0, score - minus);
-        scores[activeLevel] = score;
-        localStorage.setItem('taaltoren_scores', JSON.stringify(scores));
-        document.getElementById('score-display').innerText = 'Очки: ' + score;
-        if (socket && activeLevel) {
-          socket.emit("sub-block", { user: playerName, level: activeLevel, minus });
-        }
-        setTimeout(() => {
-          showNextWord();
-        }, 3000); // 3 сек якщо невірно
-      }
-    }
+    document.getElementById('question').innerHTML =
+      `Перекласти: ${word.ua} <button onclick="speakText('${word.nl}', 'nl-NL')" style="font-size:18px; margin-left:5px;">🔊</button>`;
 
-    function increaseScore() {
-      score++;
+    const correct = word.nl;
+    const options = [correct, generateMistake(correct), generateMistake(correct)];
+    shuffle(options);
+
+    const optionsContainer = document.getElementById('options');
+    optionsContainer.innerHTML = '';
+    options.forEach(opt => {
+      const btn = document.createElement('button');
+      btn.innerText = opt;
+      btn.className = 'option-button';
+      btn.onclick = () => handleAnswer(btn, opt, correct, word, optionsContainer, options);
+      optionsContainer.appendChild(btn);
+    });
+  }
+
+  function handleAnswer(clickedBtn, selected, correct, word, optionsContainer, options) {
+    Array.from(optionsContainer.children).forEach(btn => btn.disabled = true);
+
+    if (selected === correct) {
+      clickedBtn.classList.add('correct');
+      speakText(correct, 'nl-NL');
+      setTimeout(() => {
+        increaseScore();
+        wrongStreak = 0;
+        usedWords.push(word.nl);
+        puzzleProgress++;
+        renderPuzzle();
+        addBlock(word.nl);
+        showNextWord();
+      }, 1000);
+    } else {
+      clickedBtn.classList.add('wrong');
+      Array.from(optionsContainer.children).forEach(btn => {
+        if (btn.innerText === correct) btn.classList.add('correct');
+      });
+      wrongStreak++;
+      let minus = wrongStreak < 3 ? 1 : 2;
+      score = Math.max(0, score - minus);
       scores[activeLevel] = score;
       localStorage.setItem('taaltoren_scores', JSON.stringify(scores));
       document.getElementById('score-display').innerText = 'Очки: ' + score;
-    }
-
-    function addBlock(word) {
       if (socket && activeLevel) {
-        socket.emit("add-block", { user: playerName, word, level: activeLevel });
+        socket.emit("sub-block", { user: playerName, level: activeLevel, minus });
       }
+      setTimeout(() => {
+        showNextWord();
+      }, 3000);
     }
+  }
 
-    function shuffle(array) {
-      for (let i = array.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [array[i], array[j]] = [array[j], array[i]];
-      }
+  function increaseScore() {
+    score++;
+    scores[activeLevel] = score;
+    localStorage.setItem('taaltoren_scores', JSON.stringify(scores));
+    document.getElementById('score-display').innerText = 'Очки: ' + score;
+  }
+
+  function addBlock(word) {
+    if (socket && activeLevel) {
+      socket.emit("add-block", { user: playerName, word, level: activeLevel });
     }
+  }
 
-    function generateMistake(word) {
-      if (word.length < 2) return word + 'x';
-      let arr = word.split('');
-      let i = Math.floor(Math.random() * (word.length - 1));
-      [arr[i], arr[i + 1]] = [arr[i + 1], arr[i]];
-      return arr.join('');
+  function shuffle(array) {
+    for (let i = array.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [array[i], array[j]] = [array[j], array[i]];
     }
+  }
 
-    function triggerStorm() {
-      alert("Буря зруйнувала вашу вежу (та пазл)!");
-      puzzleProgress = 0;
-      renderPuzzle();
-      usedWords = [];
-      document.getElementById('storm-timer').innerText = '';
-      localStorage.removeItem('taaltoren_activeLevel');
-      document.getElementById('game').style.display = 'none';
-      document.getElementById('level-selection').style.display = 'block';
-    }
+  function generateMistake(word) {
+    if (word.length < 2) return word + 'x';
+    let arr = word.split('');
+    let i = Math.floor(Math.random() * (word.length - 1));
+    [arr[i], arr[i + 1]] = [arr[i + 1], arr[i]];
+    return arr.join('');
+  }
 
-    function updateTowersAndScores() {
-      const sessionDiv = document.getElementById('session-rating');
-      let lvl = activeLevel || 'A0';
-      let sortedSession = Object.entries(allScoresSession[lvl] || {}).sort((a, b) => b[1] - a[1]);
-      sessionDiv.innerHTML = `<h4>Рейтинг цієї сесії (${lvl})</h4>` +
-        sortedSession.map(([user, sc], idx) =>
-          `<div>${idx + 1}. ${user}: <b>${sc}</b></div>`
-        ).join('');
+  function triggerStorm() {
+    alert("Буря зруйнувала вашу вежу (та пазл)!");
+    puzzleProgress = 0;
+    renderPuzzle();
+    usedWords = [];
+    document.getElementById('storm-timer').innerText = '';
+    localStorage.removeItem('taaltoren_activeLevel');
+    document.getElementById('game').style.display = 'none';
+    document.getElementById('level-selection').style.display = 'block';
+  }
 
-      const cornerDiv = document.getElementById('global-rating-corner');
-      let sortedGlobal = Object.entries(allScoresGlobal[lvl] || {}).sort((a, b) => b[1] - a[1]);
-      cornerDiv.innerHTML = `<h4 style="margin:0 0 8px 0">Глобальний рейтинг (${lvl})</h4>` +
-        sortedGlobal.map(([user, sc], idx) =>
-          `<div style="font-size:15px">${idx + 1}. ${user}: <b>${sc}</b></div>`
-        ).join('');
-    }
+  function updateTowersAndScores() {
+    const sessionDiv = document.getElementById('session-rating');
+    let lvl = activeLevel || 'A0';
+    let sortedSession = Object.entries(allScoresSession[lvl] || {}).sort((a, b) => b[1] - a[1]);
+    sessionDiv.innerHTML = `<h4>Рейтинг цієї сесії (${lvl})</h4>` +
+      sortedSession.map(([user, sc], idx) =>
+        `<div>${idx + 1}. ${user}: <b>${sc}</b></div>`
+      ).join('');
 
-    // --- Функція озвучення ---
-    function speakText(text, lang='nl-NL') {
-      if (!window.speechSynthesis) return;
-      let utter = new window.SpeechSynthesisUtterance(text);
-      utter.lang = lang;
-      window.speechSynthesis.speak(utter);
-    }
-  </script>
+    const cornerDiv = document.getElementById('global-rating-corner');
+    let sortedGlobal = Object.entries(allScoresGlobal[lvl] || {}).sort((a, b) => b[1] - a[1]);
+    cornerDiv.innerHTML = `<h4 style="margin:0 0 8px 0">Глобальний рейтинг (${lvl})</h4>` +
+      sortedGlobal.map(([user, sc], idx) =>
+        `<div style="font-size:15px">${idx + 1}. ${user}: <b>${sc}</b></div>`
+      ).join('');
+  }
+
+  function speakText(text, lang='nl-NL') {
+    if (!window.speechSynthesis) return;
+    let utter = new window.SpeechSynthesisUtterance(text);
+    utter.lang = lang;
+    window.speechSynthesis.speak(utter);
+  }
+</script>
 </body>
 </html>
-
-</body>
-</html>
-
