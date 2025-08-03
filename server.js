@@ -4,6 +4,7 @@ const cors = require("cors");
 const { Server } = require("socket.io");
 const fs = require("fs");
 const path = require("path");
+const connection = require('./db');
 
 const app = express();
 const server = http.createServer(app);
@@ -124,6 +125,16 @@ io.on("connection", socket => {
 
 // --- Запуск сервера ---
 const PORT = process.env.PORT || 3000;
+app.get('/test-mysql', (req, res) => {
+  connection.query('SELECT 1 + 1 AS solution', (err, results) => {
+    if (err) {
+      res.status(500).send('Помилка MySQL: ' + err.message);
+      return;
+    }
+    res.send('MySQL працює! 1+1=' + results[0].solution);
+  });
+});
 server.listen(PORT, () => {
   console.log("Сервер працює на порті " + PORT);
 });
+
