@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!DOCTYPE html> 
 <html lang="uk">
 <head>
   <meta charset="UTF-8">
@@ -10,7 +10,7 @@
 
   <div id="global-rating-corner"></div>
 
-  <!-- Блок реєстрації -->
+  <!-- Реєстрація -->
   <div id="register-section" style="margin-top: 40px;">
     <h2>Реєстрація</h2>
     <form id="registerForm" style="display:flex;flex-direction:column;max-width:320px;gap:10px;">
@@ -22,11 +22,15 @@
     </form>
   </div>
 
-  <!-- Блок логіна (для входу у гру, після реєстрації) -->
-  <div id="username-section" style="margin-top: 50px; display:none;">
-    <h2>Введіть унікальний логін</h2>
-    <input type="text" id="username-input" placeholder="Ваш логін">
-    <button onclick="submitName()">Почати</button>
+  <!-- Вхід -->
+  <div id="login-section" style="margin-top: 40px; display:none;">
+    <h2>Вхід</h2>
+    <form id="loginForm" style="display:flex;flex-direction:column;max-width:320px;gap:10px;">
+      <input type="text" id="login-username" placeholder="Логін" required>
+      <input type="password" id="login-password" placeholder="Пароль" required>
+      <button type="submit">Увійти</button>
+      <div id="login-msg" style="color:red"></div>
+    </form>
   </div>
 
   <div id="level-selection" style="display: none;">
@@ -48,16 +52,32 @@
   </div>
 
 <script>
-  // --- Форма реєстрації (відправка на backend) ---
+  let socket = io();
+
+  let allScoresSession = { A0: {}, A1: {}, A2: {} };
+  let allScoresGlobal  = { A0: {}, A1: {}, A2: {} };
+  let lastServerTimer = 900;
+  let lastServerTimeUpdate = Date.now();
+
+  let scores = { A0: 0, A1: 0, A2: 0 };
+  let activeLevel = null;
+  let score = 0;
+  let currentCSV = [];
+  let usedWords = [];
+  let playerName = '';
+  let wrongStreak = 0;
+
+  // --- Реєстрація ---
   document.getElementById('registerForm').onsubmit = async function(e) {
     e.preventDefault();
     const form = e.target;
     const body = {
-      username: form.username.value,
-      email: form.email.value,
+      username: form.username.value.trim(),
+      email: form.email.value.trim(),
       password: form.password.value
     };
     const regMsg = document.getElementById('reg-msg');
+    regMsg.style.color = 'black';
     regMsg.innerText = 'Реєстрація...';
     const res = await fetch('/api/register', {
       method: 'POST',
@@ -65,20 +85,54 @@
       body: JSON.stringify(body)
     });
     const data = await res.json();
-    regMsg.innerText = data.msg;
     if (data.ok) {
+      regMsg.style.color = 'green';
+      regMsg.innerText = 'Реєстрація успішна! Тепер увійдіть.';
       setTimeout(() => {
         document.getElementById('register-section').style.display = 'none';
-        document.getElementById('username-section').style.display = '';
-        document.getElementById('username-input').value = form.username.value;
-      }, 900);
+        document.getElementById('login-section').style.display = 'block';
+        document.getElementById('login-username').value = body.username;
+      }, 1000);
     } else {
       regMsg.style.color = 'red';
-      setTimeout(() => regMsg.style.color = 'green', 2000);
+      regMsg.innerText = data.msg || 'Помилка реєстрації';
     }
   };
 
-  // --- Пазл налаштування ---
+  // --- Вхід ---
+  document.getElementById('loginForm').onsubmit = async function(e) {
+    e.preventDefault();
+    const loginMsg = document.getElementById('login-msg');
+    loginMsg.innerText = '';
+    const username = document.getElementById('login-username').value.trim();
+    const password = document.getElementById('login-password').value;
+    if (!username || !password) {
+      loginMsg.innerText = 'Введіть логін та пароль';
+      return;
+    }
+    loginMsg.innerText = 'Перевірка...';
+    const res = await fetch('/api/login', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ username, password })
+    });
+    const data = await res.json();
+    if (!data.ok) {
+      loginMsg.innerText = data.msg || 'Помилка входу';
+      return;
+    }
+    // Успішний вхід
+    playerName = data.user.username;
+    scores = { A0: data.user.points || 0, A1: data.user.points || 0, A2: data.user.points || 0 }; // для простоти
+    score = data.user.points || 0;
+
+    document.getElementById('login-section').style.display = 'none';
+    document.getElementById('level-selection').style.display = 'block';
+    document.getElementById('player-name').innerText = 'Гравець: ' + playerName;
+    document.getElementById('score-display').innerText = 'Очки: ' + score;
+  };
+
+  // --- Пазл ---
   const PUZZLE_W = 10, PUZZLE_H = 10;
   const puzzleImages = [
     "puzzle1.jpg", "puzzle2.jpg", "puzzle3.jpg",
@@ -104,116 +158,41 @@
     }
   }
 
-  // --- Стандартна логіка гри ---
-  let socket = io();
-
-  let allScoresSession = { A0: {}, A1: {}, A2: {} };
-  let allScoresGlobal  = { A0: {}, A1: {}, A2: {} };
-  let lastServerTimer = 900;
-  let lastServerTimeUpdate = Date.now();
-
-  let scores = JSON.parse(localStorage.getItem('taaltoren_scores')) || { A0: 0, A1: 0, A2: 0 };
-  let activeLevel = localStorage.getItem('taaltoren_activeLevel') || null;
-  let score = 0;
-  let currentCSV = [];
-  let usedWords = [];
-  let playerName = localStorage.getItem('taaltoren_username') || '';
-  let wrongStreak = 0;
-
-  // --- Таймер бурі ---
-  socket.on("tick", ({ timer }) => {
-    lastServerTimer = timer;
-    lastServerTimeUpdate = Date.now();
-  });
-
-  setInterval(() => {
-    const elapsed = Math.floor((Date.now() - lastServerTimeUpdate) / 1000);
-    const left = Math.max(0, lastServerTimer - elapsed);
-    const timerElem = document.getElementById('storm-timer');
-    if (timerElem) {
-      let min = Math.floor(left / 60);
-      let sec = Math.floor(left % 60);
-      timerElem.innerText = `До бурі: ${min.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`;
-    }
-  }, 1000);
-
-  socket.on("clear", () => {
-    triggerStorm();
-  });
-
-  socket.on("sync", ({ scoresSession, scoresGlobal }) => {
-    allScoresSession = scoresSession || { A0: {}, A1: {}, A2: {} };
-    allScoresGlobal  = scoresGlobal  || { A0: {}, A1: {}, A2: {} };
-    updateTowersAndScores();
-  });
-
-  // --- Збереження гри при оновленні ---
-  if (playerName) {
-    document.getElementById('register-section').style.display = 'none';
-    document.getElementById('username-section').style.display = 'none';
-    if (activeLevel) {
-      selectLevel(activeLevel, true);
-    } else {
-      document.getElementById('level-selection').style.display = 'block';
-    }
-  }
-
-  function submitName() {
-    const nameInput = document.getElementById('username-input').value.trim();
-    if (!nameInput) return;
-    // Реєстрація логіна на сервері через сокет
-    socket.emit("register-user", nameInput, function(res) {
-      if (!res.ok) {
-        alert(res.msg);
-        return;
-      }
-      playerName = nameInput;
-      localStorage.setItem('taaltoren_username', playerName);
-      document.getElementById('username-section').style.display = 'none';
-      document.getElementById('level-selection').style.display = 'block';
-    });
-  }
-
-  function selectLevel(level, isReload = false) {
+  // --- Гра ---
+  function selectLevel(level) {
     activeLevel = level;
-    localStorage.setItem('taaltoren_activeLevel', activeLevel);
     score = scores[activeLevel] || 0;
     document.getElementById('level-selection').style.display = 'none';
     document.getElementById('game').style.display = 'block';
     document.getElementById('level-display').innerText = 'Рівень: ' + activeLevel;
-    document.getElementById('player-name').innerText = 'Гравець: ' + playerName;
     document.getElementById('score-display').innerText = 'Очки: ' + score;
 
     wrongStreak = 0;
-
     puzzleImg = puzzleImages[Math.floor(Math.random() * puzzleImages.length)];
     puzzleProgress = 0;
     renderPuzzle();
 
     const csvFile = level === 'A0' ? 'words.csv' : level === 'A1' ? 'words2.csv' : 'words3.csv';
-    loadCSV(csvFile, isReload);
+    loadCSV(csvFile);
   }
 
-  function loadCSV(file, isReload = false) {
+  function loadCSV(file) {
     fetch(file)
       .then(res => res.text())
       .then(text => {
         const lines = text.trim().split('\n');
         currentCSV = lines.map(line => {
           const parts = line.split(',');
-          const ua = parts[0] ? parts[0].trim() : '';
-          const nl = parts[1] ? parts[1].trim() : '';
-          return { ua, nl };
+          return { ua: parts[0].trim(), nl: parts[1].trim() };
         });
         shuffle(currentCSV);
         usedWords = [];
-        if (!isReload) renderPuzzle();
         showNextWord();
       });
   }
 
   function showNextWord() {
-    const availableWords = currentCSV.filter(word => !usedWords.includes(word.nl));
+    const availableWords = currentCSV.filter(w => !usedWords.includes(w.nl));
     if (availableWords.length === 0) return;
     const word = availableWords[Math.floor(Math.random() * availableWords.length)];
 
@@ -230,16 +209,15 @@
       const btn = document.createElement('button');
       btn.innerText = opt;
       btn.className = 'option-button';
-      btn.onclick = () => handleAnswer(btn, opt, correct, word, optionsContainer, options);
+      btn.onclick = () => handleAnswer(btn, opt, correct, word, optionsContainer);
       optionsContainer.appendChild(btn);
     });
   }
 
-  function handleAnswer(clickedBtn, selected, correct, word, optionsContainer, options) {
-    Array.from(optionsContainer.children).forEach(btn => btn.disabled = true);
-
+  function handleAnswer(btn, selected, correct, word, optionsContainer) {
+    Array.from(optionsContainer.children).forEach(b => b.disabled = true);
     if (selected === correct) {
-      clickedBtn.classList.add('correct');
+      btn.classList.add('correct');
       speakText(correct, 'nl-NL');
       setTimeout(() => {
         increaseScore();
@@ -251,29 +229,25 @@
         showNextWord();
       }, 1000);
     } else {
-      clickedBtn.classList.add('wrong');
-      Array.from(optionsContainer.children).forEach(btn => {
-        if (btn.innerText === correct) btn.classList.add('correct');
+      btn.classList.add('wrong');
+      Array.from(optionsContainer.children).forEach(b => {
+        if (b.innerText === correct) b.classList.add('correct');
       });
       wrongStreak++;
       let minus = wrongStreak < 3 ? 1 : 2;
       score = Math.max(0, score - minus);
       scores[activeLevel] = score;
-      localStorage.setItem('taaltoren_scores', JSON.stringify(scores));
       document.getElementById('score-display').innerText = 'Очки: ' + score;
       if (socket && activeLevel) {
         socket.emit("sub-block", { user: playerName, level: activeLevel, minus });
       }
-      setTimeout(() => {
-        showNextWord();
-      }, 3000);
+      setTimeout(() => showNextWord(), 3000);
     }
   }
 
   function increaseScore() {
     score++;
     scores[activeLevel] = score;
-    localStorage.setItem('taaltoren_scores', JSON.stringify(scores));
     document.getElementById('score-display').innerText = 'Очки: ' + score;
   }
 
@@ -283,10 +257,10 @@
     }
   }
 
-  function shuffle(array) {
-    for (let i = array.length - 1; i > 0; i--) {
+  function shuffle(arr) {
+    for (let i = arr.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
-      [array[i], array[j]] = [array[j], array[i]];
+      [arr[i], arr[j]] = [arr[j], arr[i]];
     }
   }
 
@@ -309,23 +283,6 @@
     document.getElementById('level-selection').style.display = 'block';
   }
 
-  function updateTowersAndScores() {
-    const sessionDiv = document.getElementById('session-rating');
-    let lvl = activeLevel || 'A0';
-    let sortedSession = Object.entries(allScoresSession[lvl] || {}).sort((a, b) => b[1] - a[1]);
-    sessionDiv.innerHTML = `<h4>Рейтинг цієї сесії (${lvl})</h4>` +
-      sortedSession.map(([user, sc], idx) =>
-        `<div>${idx + 1}. ${user}: <b>${sc}</b></div>`
-      ).join('');
-
-    const cornerDiv = document.getElementById('global-rating-corner');
-    let sortedGlobal = Object.entries(allScoresGlobal[lvl] || {}).sort((a, b) => b[1] - a[1]);
-    cornerDiv.innerHTML = `<h4 style="margin:0 0 8px 0">Глобальний рейтинг (${lvl})</h4>` +
-      sortedGlobal.map(([user, sc], idx) =>
-        `<div style="font-size:15px">${idx + 1}. ${user}: <b>${sc}</b></div>`
-      ).join('');
-  }
-
   function speakText(text, lang='nl-NL') {
     if (!window.speechSynthesis) return;
     let utter = new window.SpeechSynthesisUtterance(text);
@@ -333,5 +290,6 @@
     window.speechSynthesis.speak(utter);
   }
 </script>
+
 </body>
 </html>
