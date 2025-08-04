@@ -99,7 +99,6 @@ app.post('/api/add-points', (req, res) => {
     return res.status(400).json({ ok: false, msg: 'Неправильні вхідні дані' });
   }
 
-  // Оновлення в MySQL
   connection.query(
     'UPDATE users SET points = points + ? WHERE username = ?',
     [points, username],
@@ -123,6 +122,8 @@ app.post('/api/add-points', (req, res) => {
       } catch (e) {
         console.error('Помилка збереження глобального рейтингу:', e);
       }
+
+      io.emit("sync", { scoresSession, scoresGlobal }); // відразу оновити всім клієнтам
 
       return res.json({ ok: true, msg: `Додано ${points} очок користувачу ${username}` });
     }
