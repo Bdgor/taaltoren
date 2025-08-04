@@ -4,11 +4,60 @@ body {
   background: #f0f6fa;
   margin: 0;
 }
+
 button {
   margin: 5px;
   padding: 10px 20px;
   font-size: 16px;
+  cursor: pointer;
 }
+
+/* Центруємо секції реєстрації та входу, додаємо фон і відступи */
+#register-section, #login-section {
+  max-width: 320px;
+  margin: 40px auto;
+  padding: 20px 25px;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  box-sizing: border-box;
+}
+
+/* Заголовки у секціях */
+#register-section h2, #login-section h2 {
+  margin-bottom: 20px;
+  font-weight: 600;
+}
+
+/* Стилі для інпутів */
+input[type="text"],
+input[type="email"],
+input[type="password"] {
+  width: 100%;
+  padding: 10px 12px;
+  margin-bottom: 15px;
+  font-size: 16px;
+  border: 1.8px solid #ccc;
+  border-radius: 8px;
+  box-sizing: border-box;
+  transition: border-color 0.3s ease;
+}
+
+input[type="text"]:focus,
+input[type="email"]:focus,
+input[type="password"]:focus {
+  outline: none;
+  border-color: #4b79ff;
+}
+
+/* Повідомлення про помилки і успіх */
+#reg-msg, #login-msg {
+  margin-top: 10px;
+  font-weight: 600;
+  min-height: 20px;
+}
+
+/* Опції для відповіді */
 .option-row {
   display: flex;
   flex-direction: row;
@@ -16,6 +65,7 @@ button {
   gap: 16px;
   margin: 20px 0;
 }
+
 .option-button {
   margin: 0;
   padding: 10px 15px;
@@ -27,16 +77,19 @@ button {
   background: #fff;
   transition: background 0.2s, border 0.2s, color 0.2s;
 }
+
 .option-button.correct {
   background: #5cc77c !important;
   color: #fff;
   border-color: #41b162;
 }
+
 .option-button.wrong {
   background: #f96d6d !important;
   color: #fff;
   border-color: #e13333;
 }
+
 #puzzle-canvas {
   display: grid;
   grid-template-columns: repeat(10, 1fr);
@@ -50,6 +103,7 @@ button {
   box-shadow: 0 2px 12px #0008;
   position: relative;
 }
+
 .puzzle-fragment {
   width: 32px;
   height: 20px;
@@ -59,10 +113,12 @@ button {
   opacity: 0.10;
   transition: opacity 0.4s;
 }
+
 .puzzle-fragment.open {
   opacity: 1;
   border-radius: 1px;
 }
+
 #global-rating-corner {
   position: fixed;
   top: 10px;
@@ -74,6 +130,7 @@ button {
   z-index: 99;
   min-width: 170px;
 }
+
 #session-rating {
   margin-bottom: 30px;
 }
