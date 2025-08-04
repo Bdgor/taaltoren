@@ -139,6 +139,16 @@ io.on("connection", socket => {
     scoresSession[level][user]++;
     if (!scoresGlobal[level][user]) scoresGlobal[level][user] = 0;
     scoresGlobal[level][user]++;
+    
+    // Оновлення в MySQL
+    connection.query(
+      'UPDATE users SET points = points + 1 WHERE username = ?',
+      [user],
+      (err) => {
+        if (err) console.error('MySQL update error:', err);
+      }
+    );
+    
     saveGlobalScores(scoresGlobal);
     io.emit("sync", { scoresSession, scoresGlobal });
   });
@@ -151,6 +161,16 @@ io.on("connection", socket => {
     scoresSession[level][user] = Math.max(0, scoresSession[level][user] - m);
     if (!scoresGlobal[level][user]) scoresGlobal[level][user] = 0;
     scoresGlobal[level][user] = Math.max(0, scoresGlobal[level][user] - m);
+    
+    // Оновлення в MySQL
+    connection.query(
+      'UPDATE users SET points = GREATEST(points - ?, 0) WHERE username = ?',
+      [m, user],
+      (err) => {
+        if (err) console.error('MySQL update error:', err);
+      }
+    );
+    
     saveGlobalScores(scoresGlobal);
     io.emit("sync", { scoresSession, scoresGlobal });
   });
@@ -163,5 +183,3 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
   console.log("Сервер працює на порті " + PORT);
 });
-
-
