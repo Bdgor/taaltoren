@@ -91,6 +91,44 @@ app.post('/api/login', (req, res) => {
   );
 });
 
+// --- Новий ендпоінт для додавання очок ---
+app.post('/api/add-points', (req, res) => {
+  const { username, level, points } = req.body;
+
+  if (!username || !level || typeof points !== 'number' || points <= 0) {
+    return res.status(400).json({ ok: false, msg: 'Неправильні вхідні дані' });
+  }
+
+  // Оновлення в MySQL
+  connection.query(
+    'UPDATE users SET points = points + ? WHERE username = ?',
+    [points, username],
+    (err, result) => {
+      if (err) {
+        console.error('MySQL update error:', err);
+        return res.status(500).json({ ok: false, msg: 'Помилка оновлення в базі даних' });
+      }
+      if (result.affectedRows === 0) {
+        return res.status(404).json({ ok: false, msg: 'Користувач не знайдений' });
+      }
+
+      // Оновлення глобального рейтингу у файлі
+      let scoresGlobal = loadGlobalScores();
+
+      if (!scoresGlobal[level]) scoresGlobal[level] = {};
+      scoresGlobal[level][username] = (scoresGlobal[level][username] || 0) + points;
+
+      try {
+        saveGlobalScores(scoresGlobal);
+      } catch (e) {
+        console.error('Помилка збереження глобального рейтингу:', e);
+      }
+
+      return res.json({ ok: true, msg: `Додано ${points} очок користувачу ${username}` });
+    }
+  );
+});
+
 // --- Папка зі статикою (в кінці!) ---
 app.use(express.static("public"));
 
@@ -102,13 +140,18 @@ function loadGlobalScores() {
     if (fs.existsSync(GLOBAL_FILE)) {
       return JSON.parse(fs.readFileSync(GLOBAL_FILE, "utf-8"));
     }
-  } catch (e) {}
+  } catch (e) {
+    console.error('Помилка читання global_scores.json:', e);
+  }
   return { A0: {}, A1: {}, A2: {} };
 }
+
 function saveGlobalScores(scoresGlobal) {
   try {
     fs.writeFileSync(GLOBAL_FILE, JSON.stringify(scoresGlobal, null, 2), "utf-8");
-  } catch (e) {}
+  } catch (e) {
+    console.error('Помилка запису global_scores.json:', e);
+  }
 }
 
 let scoresSession = { A0: {}, A1: {}, A2: {} };
