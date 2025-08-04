@@ -112,7 +112,7 @@ app.post('/api/add-points', (req, res) => {
       }
 
       // Оновлення глобального рейтингу у файлі
-      let scoresGlobal = loadGlobalScores();
+      scoresGlobal = loadGlobalScores();
 
       if (!scoresGlobal[level]) scoresGlobal[level] = {};
       scoresGlobal[level][username] = (scoresGlobal[level][username] || 0) + points;
@@ -123,7 +123,8 @@ app.post('/api/add-points', (req, res) => {
         console.error('Помилка збереження глобального рейтингу:', e);
       }
 
-      io.emit("sync", { scoresSession, scoresGlobal }); // відразу оновити всім клієнтам
+      // Повідомляємо всіх клієнтів про оновлення рейтингу
+      io.emit("sync", { scoresSession, scoresGlobal });
 
       return res.json({ ok: true, msg: `Додано ${points} очок користувачу ${username}` });
     }
