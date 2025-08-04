@@ -20,7 +20,7 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// --- Тестовий маршрут --- //
+// --- Тестовий маршрут для перевірки MySQL ---
 app.get('/ping-db', (req, res) => {
   connection.query('SELECT 1 + 1 AS solution', (err, results) => {
     if (err) return res.status(500).send('Помилка MySQL: ' + err.message);
@@ -28,7 +28,7 @@ app.get('/ping-db', (req, res) => {
   });
 });
 
-// --- Отримати всіх користувачів --- //
+// --- Отримати всіх користувачів ---
 app.get('/api/users', (req, res) => {
   connection.query('SELECT id, username, email, points, created_at FROM users', (err, results) => {
     if (err) return res.status(500).json({ ok: false, msg: 'DB error' });
@@ -36,7 +36,7 @@ app.get('/api/users', (req, res) => {
   });
 });
 
-// --- Реєстрація --- //
+// --- Реєстрація ---
 app.post('/api/register', async (req, res) => {
   const { username, email, password } = req.body;
   if (!username || !email || !password)
@@ -64,7 +64,7 @@ app.post('/api/register', async (req, res) => {
   );
 });
 
-// --- Логін (тільки через MySQL) --- //
+// --- Логін ---
 app.post('/api/login', (req, res) => {
   const { username, password } = req.body;
   if (!username || !password)
@@ -82,15 +82,19 @@ app.post('/api/login', (req, res) => {
       if (!isValid)
         return res.status(400).json({ ok: false, msg: 'Невірний пароль' });
 
-      res.json({ ok: true, msg: 'Вхід успішний', user: { id: user.id, username: user.username, email: user.email, points: user.points } });
+      res.json({
+        ok: true,
+        msg: 'Вхід успішний',
+        user: { id: user.id, username: user.username, email: user.email, points: user.points }
+      });
     }
   );
 });
 
-// --- Папка зі статикою (в кінці!) --- //
+// --- Папка зі статикою (в кінці!) ---
 app.use(express.static("public"));
 
-// --- Глобальний рейтинг --- //
+// --- Глобальний рейтинг ---
 const GLOBAL_FILE = path.join(__dirname, "global_scores.json");
 
 function loadGlobalScores() {
@@ -126,7 +130,7 @@ function startTimer() {
   }, 1000);
 }
 
-// --- WebSocket --- //
+// --- WebSocket ---
 io.on("connection", socket => {
   socket.emit("sync", { scoresSession, scoresGlobal });
   socket.emit("tick", { timer });
@@ -178,7 +182,7 @@ io.on("connection", socket => {
   socket.on("disconnect", () => {});
 });
 
-// --- Запуск сервера --- //
+// --- Запуск сервера ---
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
   console.log("Сервер працює на порті " + PORT);
