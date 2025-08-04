@@ -1,10 +1,10 @@
 const mysql = require('mysql2');
 
 const connection = mysql.createConnection({
-  host: 'localhost',          // якщо MySQL на цьому ж сервері
-  user: 'Bdgor',              // твій користувач
-  password: 'Bdogr3991',      // твій пароль
-  database: 'taaltoren'       // твоя база
+  host: 'localhost',
+  user: 'Bdgor',
+  password: 'MyStrongPass123',
+  database: 'your_database_name' // заміни на актуальну назву
 });
 
 connection.connect((err) => {
