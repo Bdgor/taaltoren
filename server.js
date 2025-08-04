@@ -134,9 +134,9 @@ app.post('/api/register', async (req, res) => {
       const hashedPassword = await bcrypt.hash(password, 10);
 
       connection.query(
-        'INSERT INTO users (username, email, password) VALUES (?, ?, ?)',
-        [username, email, hashedPassword],
-        (err2, result) => {
+  'INSERT INTO users (username, email, password_hash) VALUES (?, ?, ?)',
+  [username, email, hashedPassword],
+      (err2, result) => {
           if (err2) return res.status(500).json({ ok: false, msg: 'DB error' });
           return res.json({ ok: true, msg: 'Користувача зареєстровано' });
         }
@@ -161,3 +161,4 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log("Сервер працює на порті " + PORT);
 });
+
