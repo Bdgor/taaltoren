@@ -17,13 +17,81 @@ const io = new Server(server, {
 });
 
 app.use(cors());
-app.use(express.static("public"));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// --- Файли для зберігання рейтингу і логінів (залишаємо поки що, якщо треба міграція — перенесемо в MySQL) ---
+// --- Тестовий маршрут --- //
+app.get('/test-mysql', (req, res) => {
+  connection.query('SELECT 1 + 1 AS solution', (err, results) => {
+    if (err) return res.status(500).send('Помилка MySQL: ' + err.message);
+    res.send('MySQL працює! 1+1=' + results[0].solution);
+  });
+});
+
+// --- Отримати всіх користувачів --- //
+app.get('/api/users', (req, res) => {
+  connection.query('SELECT id, username, email, points, created_at FROM users', (err, results) => {
+    if (err) return res.status(500).json({ ok: false, msg: 'DB error' });
+    res.json({ ok: true, users: results });
+  });
+});
+
+// --- Реєстрація --- //
+app.post('/api/register', async (req, res) => {
+  const { username, email, password } = req.body;
+  if (!username || !email || !password)
+    return res.status(400).json({ ok: false, msg: 'Всі поля обовʼязкові' });
+
+  connection.query(
+    'SELECT id FROM users WHERE username=? OR email=?',
+    [username, email],
+    async (err, results) => {
+      if (err) return res.status(500).json({ ok: false, msg: 'DB error' });
+      if (results.length > 0)
+        return res.status(400).json({ ok: false, msg: 'Логін або e-mail вже існує' });
+
+      const hashedPassword = await bcrypt.hash(password, 10);
+
+      connection.query(
+        'INSERT INTO users (username, email, password_hash, points) VALUES (?, ?, ?, 0)',
+        [username, email, hashedPassword],
+        (err2) => {
+          if (err2) return res.status(500).json({ ok: false, msg: 'DB error' });
+          return res.json({ ok: true, msg: 'Користувача зареєстровано' });
+        }
+      );
+    }
+  );
+});
+
+// --- Логін --- //
+app.post('/api/login', (req, res) => {
+  const { username, password } = req.body;
+  if (!username || !password)
+    return res.status(400).json({ ok: false, msg: 'Введіть логін та пароль' });
+
+  connection.query(
+    'SELECT * FROM users WHERE username = ?',
+    [username],
+    async (err, results) => {
+      if (err || results.length === 0)
+        return res.status(400).json({ ok: false, msg: 'Користувача не знайдено' });
+
+      const user = results[0];
+      const isValid = await bcrypt.compare(password, user.password_hash);
+      if (!isValid)
+        return res.status(400).json({ ok: false, msg: 'Невірний пароль' });
+
+      res.json({ ok: true, msg: 'Вхід успішний', user: { id: user.id, username: user.username, email: user.email, points: user.points } });
+    }
+  );
+});
+
+// --- Папка зі статикою (в кінці!) --- //
+app.use(express.static("public"));
+
+// --- Глобальний рейтинг (залишається у файлі) --- //
 const GLOBAL_FILE = path.join(__dirname, "global_scores.json");
-const USERS_FILE = path.join(__dirname, "users.json");
 
 function loadGlobalScores() {
   try {
@@ -38,24 +106,9 @@ function saveGlobalScores(scoresGlobal) {
     fs.writeFileSync(GLOBAL_FILE, JSON.stringify(scoresGlobal, null, 2), "utf-8");
   } catch (e) {}
 }
-function loadUsers() {
-  try {
-    if (fs.existsSync(USERS_FILE)) {
-      return JSON.parse(fs.readFileSync(USERS_FILE, "utf-8"));
-    }
-  } catch (e) {}
-  return {};
-}
-function saveUsers(users) {
-  try {
-    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2), "utf-8");
-  } catch (e) {}
-}
 
 let scoresSession = { A0: {}, A1: {}, A2: {} };
 let scoresGlobal = loadGlobalScores();
-let registeredUsers = loadUsers();
-
 let timer = 900;
 let interval = null;
 
@@ -73,20 +126,8 @@ function startTimer() {
   }, 1000);
 }
 
-// --- WebSocket логіка ---
+// --- WebSocket --- //
 io.on("connection", socket => {
-  // --- Стара логіка реєстрації в json ---
-  socket.on("register-user", (login, callback) => {
-    const loginKey = login.trim().toLowerCase();
-    if (!loginKey) return callback({ ok: false, msg: "Порожній логін" });
-    if (registeredUsers[loginKey]) {
-      return callback({ ok: false, msg: "Логін уже зайнятий!" });
-    }
-    registeredUsers[loginKey] = true;
-    saveUsers(registeredUsers);
-    callback({ ok: true });
-  });
-
   socket.emit("sync", { scoresSession, scoresGlobal });
   socket.emit("tick", { timer });
   startTimer();
@@ -117,48 +158,8 @@ io.on("connection", socket => {
   socket.on("disconnect", () => {});
 });
 
-// --- Реєстрація користувача через API + MySQL ---
-app.post('/api/register', async (req, res) => {
-  const { username, email, password } = req.body;
-  if (!username || !email || !password)
-    return res.status(400).json({ ok: false, msg: 'Всі поля обовʼязкові' });
-
-  connection.query(
-    'SELECT id FROM users WHERE username=? OR email=?',
-    [username, email],
-    async (err, results) => {
-      if (err) return res.status(500).json({ ok: false, msg: 'DB error' });
-      if (results.length > 0)
-        return res.status(400).json({ ok: false, msg: 'Логін або e-mail вже існує' });
-
-      const hashedPassword = await bcrypt.hash(password, 10);
-
-      connection.query(
-  'INSERT INTO users (username, email, password_hash) VALUES (?, ?, ?)',
-  [username, email, hashedPassword],
-      (err2, result) => {
-          if (err2) return res.status(500).json({ ok: false, msg: 'DB error' });
-          return res.json({ ok: true, msg: 'Користувача зареєстровано' });
-        }
-      );
-    }
-  );
-});
-
-// --- Тестовий роут для перевірки MySQL ---
-app.get('/test-mysql', (req, res) => {
-  connection.query('SELECT 1 + 1 AS solution', (err, results) => {
-    if (err) {
-      res.status(500).send('Помилка MySQL: ' + err.message);
-      return;
-    }
-    res.send('MySQL працює! 1+1=' + results[0].solution);
-  });
-});
-
-// --- Запуск сервера ---
+// --- Запуск сервера --- //
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log("Сервер працює на порті " + PORT);
 });
-
