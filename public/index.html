@@ -1,9 +1,9 @@
 <!DOCTYPE html> 
 <html lang="uk">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8" />
   <title>TaalToren Puzzle</title>
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css" />
   <script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
 </head>
 <body>
@@ -14,9 +14,9 @@
   <div id="register-section" style="margin-top: 40px;">
     <h2>Реєстрація</h2>
     <form id="registerForm" style="display:flex;flex-direction:column;max-width:320px;gap:10px;">
-      <input type="text" name="username" placeholder="Логін" required>
-      <input type="email" name="email" placeholder="E-mail" required>
-      <input type="password" name="password" placeholder="Пароль" required>
+      <input type="text" name="username" placeholder="Логін" required />
+      <input type="email" name="email" placeholder="E-mail" required />
+      <input type="password" name="password" placeholder="Пароль" required />
       <button type="submit">Зареєструватись</button>
       <div id="reg-msg" style="color:green"></div>
     </form>
@@ -26,13 +26,17 @@
   <div id="login-section" style="margin-top: 40px; display:none;">
     <h2>Вхід</h2>
     <form id="loginForm" style="display:flex;flex-direction:column;max-width:320px;gap:10px;">
-      <input type="text" id="login-username" placeholder="Логін" required>
-      <input type="password" id="login-password" placeholder="Пароль" required>
+      <input type="text" id="login-username" placeholder="Логін" required />
+      <input type="password" id="login-password" placeholder="Пароль" required />
       <button type="submit">Увійти</button>
       <div id="login-msg" style="color:red"></div>
     </form>
   </div>
 
+  <!-- Кнопка виходу -->
+  <button id="logout-button" onclick="logout()" style="display:none; margin-top: 20px;">Вийти</button>
+
+  <!-- Вибір рівня -->
   <div id="level-selection" style="display: none;">
     <h2>Виберіть рівень складності</h2>
     <button onclick="selectLevel('A0')">A0 (🔰 Початковий)</button>
@@ -40,6 +44,7 @@
     <button onclick="selectLevel('A2')">A2 (🔥 Вищий)</button>
   </div>
 
+  <!-- Гра -->
   <div id="game" style="display: none;">
     <div id="puzzle-canvas"></div>
     <h3 id="level-display"></h3>
@@ -67,7 +72,46 @@
   let playerName = '';
   let wrongStreak = 0;
 
-  // --- Реєстрація ---
+  // При завантаженні сторінки перевіряємо сесію
+  window.onload = () => {
+    const savedUser = localStorage.getItem('taaltoren_username');
+    if (savedUser) {
+      playerName = savedUser;
+      showGameUI();
+    } else {
+      showAuthUI();
+    }
+  };
+
+  // Показати форму реєстрації та входу
+  function showAuthUI() {
+    document.getElementById('register-section').style.display = 'block';
+    document.getElementById('login-section').style.display = 'block';
+    document.getElementById('logout-button').style.display = 'none';
+    document.getElementById('level-selection').style.display = 'none';
+    document.getElementById('game').style.display = 'none';
+  }
+
+  // Показати інтерфейс гри після входу/реєстрації
+  function showGameUI() {
+    document.getElementById('register-section').style.display = 'none';
+    document.getElementById('login-section').style.display = 'none';
+    document.getElementById('logout-button').style.display = 'inline-block';
+    document.getElementById('level-selection').style.display = 'block';
+    document.getElementById('game').style.display = 'none';
+    document.getElementById('player-name').innerText = 'Гравець: ' + playerName;
+  }
+
+  // Вихід із системи
+  function logout() {
+    localStorage.removeItem('taaltoren_username');
+    playerName = '';
+    score = 0;
+    activeLevel = null;
+    showAuthUI();
+  }
+
+  // Реєстрація
   document.getElementById('registerForm').onsubmit = async function(e) {
     e.preventDefault();
     const form = e.target;
@@ -89,9 +133,8 @@
       regMsg.style.color = 'green';
       regMsg.innerText = 'Реєстрація успішна! Тепер увійдіть.';
       setTimeout(() => {
-        document.getElementById('register-section').style.display = 'none';
-        document.getElementById('login-section').style.display = 'block';
         document.getElementById('login-username').value = body.username;
+        regMsg.innerText = '';
       }, 1000);
     } else {
       regMsg.style.color = 'red';
@@ -99,7 +142,7 @@
     }
   };
 
-  // --- Вхід ---
+  // Логін
   document.getElementById('loginForm').onsubmit = async function(e) {
     e.preventDefault();
     const loginMsg = document.getElementById('login-msg');
@@ -123,13 +166,12 @@
     }
     // Успішний вхід
     playerName = data.user.username;
-    scores = { A0: data.user.points || 0, A1: data.user.points || 0, A2: data.user.points || 0 }; // для простоти
+    scores = { A0: data.user.points || 0, A1: data.user.points || 0, A2: data.user.points || 0 };
     score = data.user.points || 0;
 
-    document.getElementById('login-section').style.display = 'none';
-    document.getElementById('level-selection').style.display = 'block';
-    document.getElementById('player-name').innerText = 'Гравець: ' + playerName;
-    document.getElementById('score-display').innerText = 'Очки: ' + score;
+    localStorage.setItem('taaltoren_username', playerName);
+
+    showGameUI();
   };
 
   // --- Пазл ---
@@ -288,6 +330,47 @@
     let utter = new window.SpeechSynthesisUtterance(text);
     utter.lang = lang;
     window.speechSynthesis.speak(utter);
+  }
+
+  // --- Таймер бурі ---
+  socket.on("tick", ({ timer }) => {
+    lastServerTimer = timer;
+    lastServerTimeUpdate = Date.now();
+  });
+
+  setInterval(() => {
+    const elapsed = Math.floor((Date.now() - lastServerTimeUpdate) / 1000);
+    const left = Math.max(0, lastServerTimer - elapsed);
+    const timerElem = document.getElementById('storm-timer');
+    if (timerElem) {
+      let min = Math.floor(left / 60);
+      let sec = Math.floor(left % 60);
+      timerElem.innerText = `До бурі: ${min.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`;
+    }
+  }, 1000);
+
+  // --- Синхронізація рейтингів ---
+  socket.on("sync", ({ scoresSession, scoresGlobal }) => {
+    allScoresSession = scoresSession || { A0: {}, A1: {}, A2: {} };
+    allScoresGlobal  = scoresGlobal  || { A0: {}, A1: {}, A2: {} };
+    updateTowersAndScores();
+  });
+
+  function updateTowersAndScores() {
+    const sessionDiv = document.getElementById('session-rating');
+    let lvl = activeLevel || 'A0';
+    let sortedSession = Object.entries(allScoresSession[lvl] || {}).sort((a, b) => b[1] - a[1]);
+    sessionDiv.innerHTML = `<h4>Рейтинг цієї сесії (${lvl})</h4>` +
+      sortedSession.map(([user, sc], idx) =>
+        `<div>${idx + 1}. ${user}: <b>${sc}</b></div>`
+      ).join('');
+
+    const cornerDiv = document.getElementById('global-rating-corner');
+    let sortedGlobal = Object.entries(allScoresGlobal[lvl] || {}).sort((a, b) => b[1] - a[1]);
+    cornerDiv.innerHTML = `<h4 style="margin:0 0 8px 0">Глобальний рейтинг (${lvl})</h4>` +
+      sortedGlobal.map(([user, sc], idx) =>
+        `<div style="font-size:15px">${idx + 1}. ${user}: <b>${sc}</b></div>`
+      ).join('');
   }
 </script>
 
