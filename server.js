@@ -4,7 +4,7 @@ const cors = require("cors");
 const { Server } = require("socket.io");
 const fs = require("fs");
 const path = require("path");
-const connection = require('./db');
+const connection = require('./db'); // твій MySQL коннект
 const bcrypt = require('bcrypt');
 
 const app = express();
@@ -139,11 +139,12 @@ io.on("connection", socket => {
   socket.on("add-block", data => {
     const { user, level } = data;
     if (!user || !level) return;
+
     if (!scoresSession[level][user]) scoresSession[level][user] = 0;
     scoresSession[level][user]++;
     if (!scoresGlobal[level][user]) scoresGlobal[level][user] = 0;
     scoresGlobal[level][user]++;
-    
+
     // Оновлення в MySQL
     connection.query(
       'UPDATE users SET points = points + 1 WHERE username = ?',
@@ -152,7 +153,7 @@ io.on("connection", socket => {
         if (err) console.error('MySQL update error:', err);
       }
     );
-    
+
     saveGlobalScores(scoresGlobal);
     io.emit("sync", { scoresSession, scoresGlobal });
   });
@@ -165,7 +166,7 @@ io.on("connection", socket => {
     scoresSession[level][user] = Math.max(0, scoresSession[level][user] - m);
     if (!scoresGlobal[level][user]) scoresGlobal[level][user] = 0;
     scoresGlobal[level][user] = Math.max(0, scoresGlobal[level][user] - m);
-    
+
     // Оновлення в MySQL
     connection.query(
       'UPDATE users SET points = GREATEST(points - ?, 0) WHERE username = ?',
@@ -174,7 +175,7 @@ io.on("connection", socket => {
         if (err) console.error('MySQL update error:', err);
       }
     );
-    
+
     saveGlobalScores(scoresGlobal);
     io.emit("sync", { scoresSession, scoresGlobal });
   });
