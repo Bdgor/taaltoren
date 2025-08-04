@@ -72,18 +72,28 @@
   let playerName = '';
   let wrongStreak = 0;
 
-  // При завантаженні сторінки перевіряємо сесію
+  // При завантаженні сторінки
   window.onload = () => {
     const savedUser = localStorage.getItem('taaltoren_username');
+    const savedLevel = localStorage.getItem('taaltoren_activeLevel');
+
     if (savedUser) {
       playerName = savedUser;
-      showGameUI();
+      document.getElementById('player-name').innerText = 'Гравець: ' + playerName;
+      document.getElementById('logout-button').style.display = 'inline-block';
+      document.getElementById('register-section').style.display = 'none';
+      document.getElementById('login-section').style.display = 'none';
+
+      if (savedLevel) {
+        selectLevel(savedLevel);
+      } else {
+        showLevelSelection();
+      }
     } else {
       showAuthUI();
     }
   };
 
-  // Показати форму реєстрації та входу
   function showAuthUI() {
     document.getElementById('register-section').style.display = 'block';
     document.getElementById('login-section').style.display = 'block';
@@ -92,19 +102,19 @@
     document.getElementById('game').style.display = 'none';
   }
 
-  // Показати інтерфейс гри після входу/реєстрації
-  function showGameUI() {
-    document.getElementById('register-section').style.display = 'none';
-    document.getElementById('login-section').style.display = 'none';
-    document.getElementById('logout-button').style.display = 'inline-block';
+  function showLevelSelection() {
     document.getElementById('level-selection').style.display = 'block';
     document.getElementById('game').style.display = 'none';
-    document.getElementById('player-name').innerText = 'Гравець: ' + playerName;
   }
 
-  // Вихід із системи
+  function showGame() {
+    document.getElementById('level-selection').style.display = 'none';
+    document.getElementById('game').style.display = 'block';
+  }
+
   function logout() {
     localStorage.removeItem('taaltoren_username');
+    localStorage.removeItem('taaltoren_activeLevel');
     playerName = '';
     score = 0;
     activeLevel = null;
@@ -171,7 +181,11 @@
 
     localStorage.setItem('taaltoren_username', playerName);
 
-    showGameUI();
+    showLevelSelection();
+    document.getElementById('register-section').style.display = 'none';
+    document.getElementById('login-section').style.display = 'none';
+    document.getElementById('logout-button').style.display = 'inline-block';
+    document.getElementById('player-name').innerText = 'Гравець: ' + playerName;
   };
 
   // --- Пазл ---
@@ -204,6 +218,8 @@
   function selectLevel(level) {
     activeLevel = level;
     score = scores[activeLevel] || 0;
+    localStorage.setItem('taaltoren_activeLevel', activeLevel);
+
     document.getElementById('level-selection').style.display = 'none';
     document.getElementById('game').style.display = 'block';
     document.getElementById('level-display').innerText = 'Рівень: ' + activeLevel;
@@ -320,7 +336,9 @@
     renderPuzzle();
     usedWords = [];
     document.getElementById('storm-timer').innerText = '';
+    // Очищаємо збережений рівень, щоб показати вибір знову
     localStorage.removeItem('taaltoren_activeLevel');
+    // Показати вибір рівня
     document.getElementById('game').style.display = 'none';
     document.getElementById('level-selection').style.display = 'block';
   }
