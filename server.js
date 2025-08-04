@@ -21,7 +21,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // --- Тестовий маршрут --- //
-app.get('/test-mysql', (req, res) => {
+app.get('/ping-db', (req, res) => {
   connection.query('SELECT 1 + 1 AS solution', (err, results) => {
     if (err) return res.status(500).send('Помилка MySQL: ' + err.message);
     res.send('MySQL працює! 1+1=' + results[0].solution);
@@ -163,4 +163,5 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
   console.log("Сервер працює на порті " + PORT);
 });
+
 
