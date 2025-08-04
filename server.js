@@ -64,7 +64,7 @@ app.post('/api/register', async (req, res) => {
   );
 });
 
-// --- Логін --- //
+// --- Логін (тільки через MySQL) --- //
 app.post('/api/login', (req, res) => {
   const { username, password } = req.body;
   if (!username || !password)
@@ -90,7 +90,7 @@ app.post('/api/login', (req, res) => {
 // --- Папка зі статикою (в кінці!) --- //
 app.use(express.static("public"));
 
-// --- Глобальний рейтинг (залишається у файлі) --- //
+// --- Глобальний рейтинг --- //
 const GLOBAL_FILE = path.join(__dirname, "global_scores.json");
 
 function loadGlobalScores() {
