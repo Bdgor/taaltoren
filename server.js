@@ -21,19 +21,23 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // --- Тестовий маршрут для перевірки MySQL ---
-app.get('/ping-db', (req, res) => {
-  connection.query('SELECT 1 + 1 AS solution', (err, results) => {
-    if (err) return res.status(500).send('Помилка MySQL: ' + err.message);
+app.get('/ping-db', async (req, res) => {
+  try {
+    const [results] = await connection.promise().query('SELECT 1 + 1 AS solution');
     res.send('MySQL працює! 1+1=' + results[0].solution);
-  });
+  } catch (err) {
+    res.status(500).send('Помилка MySQL: ' + err.message);
+  }
 });
 
 // --- Отримати всіх користувачів ---
-app.get('/api/users', (req, res) => {
-  connection.query('SELECT id, username, email, points, created_at FROM users', (err, results) => {
-    if (err) return res.status(500).json({ ok: false, msg: 'DB error' });
+app.get('/api/users', async (req, res) => {
+  try {
+    const [results] = await connection.promise().query('SELECT id, username, email, points, created_at FROM users');
     res.json({ ok: true, users: results });
-  });
+  } catch (err) {
+    res.status(500).json({ ok: false, msg: 'DB error' });
+  }
 });
 
 // --- Реєстрація ---
@@ -42,93 +46,81 @@ app.post('/api/register', async (req, res) => {
   if (!username || !email || !password)
     return res.status(400).json({ ok: false, msg: 'Всі поля обовʼязкові' });
 
-  connection.query(
-    'SELECT id FROM users WHERE username=? OR email=?',
-    [username, email],
-    async (err, results) => {
-      if (err) return res.status(500).json({ ok: false, msg: 'DB error' });
-      if (results.length > 0)
-        return res.status(400).json({ ok: false, msg: 'Логін або e-mail вже існує' });
-
-      const hashedPassword = await bcrypt.hash(password, 10);
-
-      connection.query(
-        'INSERT INTO users (username, email, password_hash, points) VALUES (?, ?, ?, 0)',
-        [username, email, hashedPassword],
-        (err2) => {
-          if (err2) return res.status(500).json({ ok: false, msg: 'DB error' });
-          return res.json({ ok: true, msg: 'Користувача зареєстровано' });
-        }
-      );
+  try {
+    const [existing] = await connection.promise().query('SELECT id FROM users WHERE username=? OR email=?', [username, email]);
+    if (existing.length > 0) {
+      return res.status(400).json({ ok: false, msg: 'Логін або e-mail вже існує' });
     }
-  );
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    await connection.promise().query('INSERT INTO users (username, email, password_hash, points) VALUES (?, ?, ?, 0)', [username, email, hashedPassword]);
+    res.json({ ok: true, msg: 'Користувача зареєстровано' });
+  } catch (err) {
+    res.status(500).json({ ok: false, msg: 'DB error' });
+  }
 });
 
 // --- Логін ---
-app.post('/api/login', (req, res) => {
+app.post('/api/login', async (req, res) => {
   const { username, password } = req.body;
   if (!username || !password)
     return res.status(400).json({ ok: false, msg: 'Введіть логін та пароль' });
 
-  connection.query(
-    'SELECT * FROM users WHERE username = ?',
-    [username],
-    async (err, results) => {
-      if (err || results.length === 0)
-        return res.status(400).json({ ok: false, msg: 'Користувача не знайдено' });
+  try {
+    const [results] = await connection.promise().query('SELECT * FROM users WHERE username = ?', [username]);
+    if (results.length === 0) return res.status(400).json({ ok: false, msg: 'Користувача не знайдено' });
 
-      const user = results[0];
-      const isValid = await bcrypt.compare(password, user.password_hash);
-      if (!isValid)
-        return res.status(400).json({ ok: false, msg: 'Невірний пароль' });
+    const user = results[0];
+    const isValid = await bcrypt.compare(password, user.password_hash);
+    if (!isValid) return res.status(400).json({ ok: false, msg: 'Невірний пароль' });
 
-      res.json({
-        ok: true,
-        msg: 'Вхід успішний',
-        user: { id: user.id, username: user.username, email: user.email, points: user.points }
-      });
-    }
-  );
+    res.json({
+      ok: true,
+      msg: 'Вхід успішний',
+      user: { id: user.id, username: user.username, email: user.email, points: user.points }
+    });
+  } catch (err) {
+    res.status(500).json({ ok: false, msg: 'DB error' });
+  }
 });
 
 // --- Новий ендпоінт для додавання очок ---
-app.post('/api/add-points', (req, res) => {
+app.post('/api/add-points', async (req, res) => {
   const { username, level, points } = req.body;
 
   if (!username || !level || typeof points !== 'number' || points <= 0) {
     return res.status(400).json({ ok: false, msg: 'Неправильні вхідні дані' });
   }
 
-  connection.query(
-    'UPDATE users SET points = points + ? WHERE username = ?',
-    [points, username],
-    (err, result) => {
-      if (err) {
-        console.error('MySQL update error:', err);
-        return res.status(500).json({ ok: false, msg: 'Помилка оновлення в базі даних' });
-      }
-      if (result.affectedRows === 0) {
-        return res.status(404).json({ ok: false, msg: 'Користувач не знайдений' });
-      }
+  try {
+    const [result] = await connection.promise().query(
+      'UPDATE users SET points = points + ? WHERE username = ?',
+      [points, username]
+    );
 
-      // Оновлення глобального рейтингу у файлі
-      scoresGlobal = loadGlobalScores();
-
-      if (!scoresGlobal[level]) scoresGlobal[level] = {};
-      scoresGlobal[level][username] = (scoresGlobal[level][username] || 0) + points;
-
-      try {
-        saveGlobalScores(scoresGlobal);
-      } catch (e) {
-        console.error('Помилка збереження глобального рейтингу:', e);
-      }
-
-      // Повідомляємо всіх клієнтів про оновлення рейтингу
-      io.emit("sync", { scoresSession, scoresGlobal });
-
-      return res.json({ ok: true, msg: `Додано ${points} очок користувачу ${username}` });
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ ok: false, msg: 'Користувач не знайдений' });
     }
-  );
+
+    // Оновлення глобального рейтингу у файлі
+    scoresGlobal = loadGlobalScores();
+
+    if (!scoresGlobal[level]) scoresGlobal[level] = {};
+    scoresGlobal[level][username] = (scoresGlobal[level][username] || 0) + points;
+
+    try {
+      saveGlobalScores(scoresGlobal);
+    } catch (e) {
+      console.error('Помилка збереження глобального рейтингу:', e);
+    }
+
+    // Повідомляємо всіх клієнтів про оновлення рейтингу
+    io.emit("sync", { scoresSession, scoresGlobal });
+
+    res.json({ ok: true, msg: `Додано ${points} очок користувачу ${username}` });
+  } catch (err) {
+    res.status(500).json({ ok: false, msg: 'Помилка оновлення в базі даних' });
+  }
 });
 
 // --- Папка зі статикою (в кінці!) ---
