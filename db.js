@@ -6,8 +6,8 @@ const pool = mysql.createPool({
   password: 'Bdgor3991',
   database: 'taaltoren',
   waitForConnections: true,
-  connectionLimit: 10,    // Максимум одночасних з'єднань у пулі
+  connectionLimit: 10,
   queueLimit: 0
 });
 
-module.exports = pool.promise(); // Використання Promise API (зручно з async/await)
+module.exports = pool;
