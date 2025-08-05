@@ -1,18 +1,13 @@
 const mysql = require('mysql2');
 
-const connection = mysql.createConnection({
+const pool = mysql.createPool({
   host: '38.180.137.243',
   user: 'Bdgor',
   password: 'Bdgor3991',
-  database: 'taaltoren'
+  database: 'taaltoren',
+  waitForConnections: true,
+  connectionLimit: 10,    // Максимум одночасних з'єднань у пулі
+  queueLimit: 0
 });
 
-connection.connect((err) => {
-  if (err) {
-    console.error('Помилка підключення до MySQL:', err);
-    return;
-  }
-  console.log('Підключено до MySQL!');
-});
-
-module.exports = connection;
+module.exports = pool.promise(); // Використання Promise API (зручно з async/await)
