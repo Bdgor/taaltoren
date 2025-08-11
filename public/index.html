@@ -1,399 +1,318 @@
-<!DOCTYPE html> 
+<!DOCTYPE html>
 <html lang="uk">
 <head>
   <meta charset="UTF-8" />
   <title>TaalToren Puzzle</title>
-    <link rel="icon" href="/favicon.png" type="image/x-icon" />
+  <link rel="icon" href="/favicon.png" type="image/x-icon" />
   <link rel="stylesheet" href="style.css" />
   <script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; }
+    #global-rating-corner {
+      position: fixed;
+      top: 10px;
+      right: 10px;
+      background: rgba(255,255,255,0.85);
+      padding: 8px;
+      border-radius: 8px;
+      max-height: 50vh;
+      overflow-y: auto;
+      font-size: 14px;
+      z-index: 1000;
+    }
+    #session-rating {
+      margin-top: 10px;
+      background: rgba(255,255,255,0.85);
+      padding: 6px;
+      border-radius: 6px;
+    }
+    .option-row { display: flex; gap: 10px; flex-wrap: wrap; }
+    .option-button { padding: 8px 12px; font-size: 16px; }
+    .correct { background: #a6f3a6; }
+    .wrong { background: #f3a6a6; }
+  </style>
 </head>
 <body>
 
-  <div id="global-rating-corner"></div>
+<div id="global-rating-corner"></div>
 
-  <!-- Реєстрація -->
-  <div id="register-section" style="margin-top: 40px;">
-    <h2>Реєстрація</h2>
-    <form id="registerForm" style="display:flex;flex-direction:column;max-width:320px;gap:10px;">
-      <input type="text" name="username" placeholder="Логін" required />
-      <input type="email" name="email" placeholder="E-mail" required />
-      <input type="password" name="password" placeholder="Пароль" required />
-      <button type="submit">Зареєструватись</button>
-      <div id="reg-msg" style="color:green"></div>
-    </form>
-  </div>
+<!-- Реєстрація -->
+<div id="register-section" style="margin-top: 40px;">
+  <h2>Реєстрація</h2>
+  <form id="registerForm" style="display:flex;flex-direction:column;max-width:320px;gap:10px;">
+    <input type="text" name="username" placeholder="Логін" required />
+    <input type="email" name="email" placeholder="E-mail" required />
+    <input type="password" name="password" placeholder="Пароль" required />
+    <button type="submit">Зареєструватись</button>
+    <div id="reg-msg" style="color:green"></div>
+  </form>
+</div>
 
-  <!-- Вхід -->
-  <div id="login-section" style="margin-top: 40px; display:none;">
-    <h2>Вхід</h2>
-    <form id="loginForm" style="display:flex;flex-direction:column;max-width:320px;gap:10px;">
-      <input type="text" id="login-username" placeholder="Логін" required />
-      <input type="password" id="login-password" placeholder="Пароль" required />
-      <button type="submit">Увійти</button>
-      <div id="login-msg" style="color:red"></div>
-    </form>
-  </div>
+<!-- Вхід -->
+<div id="login-section" style="margin-top: 40px; display:none;">
+  <h2>Вхід</h2>
+  <form id="loginForm" style="display:flex;flex-direction:column;max-width:320px;gap:10px;">
+    <input type="text" id="login-username" placeholder="Логін" required />
+    <input type="password" id="login-password" placeholder="Пароль" required />
+    <button type="submit">Увійти</button>
+    <div id="login-msg" style="color:red"></div>
+  </form>
+</div>
 
-  <!-- Кнопка виходу -->
-  <button id="logout-button" onclick="logout()" style="display:none; margin-top: 20px;">Вийти</button>
+<!-- Кнопка виходу -->
+<button id="logout-button" onclick="logout()" style="display:none; margin-top: 20px;">Вийти</button>
 
-  <!-- Вибір рівня -->
-  <div id="level-selection" style="display: none;">
-    <h2>Виберіть рівень складності</h2>
-    <button onclick="selectLevel('A0')">A0 (🔰 Початковий)</button>
-    <button onclick="selectLevel('A1')">A1 (⚙️ Базовий)</button>
-    <button onclick="selectLevel('A2')">A2 (🔥 Вищий)</button>
-  </div>
+<!-- Вибір рівня -->
+<div id="level-selection" style="display: none;">
+  <h2>Виберіть рівень складності</h2>
+  <button onclick="selectLevel('A0')">A0 (🔰 Початковий)</button>
+  <button onclick="selectLevel('A1')">A1 (⚙️ Базовий)</button>
+  <button onclick="selectLevel('A2')">A2 (🔥 Вищий)</button>
+</div>
 
-  <!-- Гра -->
-  <div id="game" style="display: none;">
-    <div id="puzzle-canvas"></div>
-    <h3 id="level-display"></h3>
-    <p><strong id="player-name"></strong></p>
-    <p id="score-display"></p>
-    <p id="storm-timer"></p>
-    <div id="question"></div>
-    <div id="options" class="option-row"></div>
-    <div id="session-rating"></div>
-  </div>
+<!-- Гра -->
+<div id="game" style="display: none;">
+  <div id="puzzle-canvas"></div>
+  <h3 id="level-display"></h3>
+  <p><strong id="player-name"></strong></p>
+  <p id="score-display"></p>
+  <p id="storm-timer"></p>
+  <div id="question"></div>
+  <div id="options" class="option-row"></div>
+  <div id="session-rating"></div>
+</div>
 
 <script>
-  let socket = io();
+let socket = io('https://terminusapp.nl', { transports: ['websocket'], secure: true });
 
-  let allScoresSession = { A0: {}, A1: {}, A2: {} };
-  let allScoresGlobal  = { A0: {}, A1: {}, A2: {} };
-  let lastServerTimer = 900;
-  let lastServerTimeUpdate = Date.now();
+let allScoresSession = { A0: {}, A1: {}, A2: {} };
+let allScoresGlobal  = { A0: {}, A1: {}, A2: {} };
+let lastServerTimer = 900, lastServerTimeUpdate = Date.now();
 
-  let scores = { A0: 0, A1: 0, A2: 0 };
-  let activeLevel = null;
-  let score = 0;
-  let currentCSV = [];
-  let usedWords = [];
-  let playerName = '';
-  let wrongStreak = 0;
+let scores = { A0: 0, A1: 0, A2: 0 };
+let activeLevel = null, score = 0, currentCSV = [], usedWords = [];
+let playerName = '', wrongStreak = 0;
+let speechReady = false;
 
-  // При завантаженні сторінки
-  window.onload = () => {
-    const savedUser = localStorage.getItem('taaltoren_username');
-    const savedLevel = localStorage.getItem('taaltoren_activeLevel');
-
-    if (savedUser) {
-      playerName = savedUser;
-      document.getElementById('player-name').innerText = 'Гравець: ' + playerName;
-      document.getElementById('logout-button').style.display = 'inline-block';
-      document.getElementById('register-section').style.display = 'none';
-      document.getElementById('login-section').style.display = 'none';
-
-      if (savedLevel) {
-        selectLevel(savedLevel);
-      } else {
-        showLevelSelection();
-      }
-    } else {
-      showAuthUI();
-    }
-  };
-
-  function showAuthUI() {
-    document.getElementById('register-section').style.display = 'block';
-    document.getElementById('login-section').style.display = 'block';
-    document.getElementById('logout-button').style.display = 'none';
-    document.getElementById('level-selection').style.display = 'none';
-    document.getElementById('game').style.display = 'none';
+// --- Розбудження озвучки для Android/Capacitor ---
+function initSpeech() {
+  if (!speechReady && window.speechSynthesis) {
+    let utter = new SpeechSynthesisUtterance(" ");
+    utter.lang = 'nl-NL';
+    window.speechSynthesis.speak(utter);
+    speechReady = true;
   }
+}
 
-  function showLevelSelection() {
-    document.getElementById('level-selection').style.display = 'block';
-    document.getElementById('game').style.display = 'none';
-  }
-
-  function showGame() {
-    document.getElementById('level-selection').style.display = 'none';
-    document.getElementById('game').style.display = 'block';
-  }
-
-  function logout() {
-    localStorage.removeItem('taaltoren_username');
-    localStorage.removeItem('taaltoren_activeLevel');
-    playerName = '';
-    score = 0;
-    activeLevel = null;
+// --- Завантаження ---
+window.onload = () => {
+  const savedUser = localStorage.getItem('taaltoren_username');
+  const savedLevel = localStorage.getItem('taaltoren_activeLevel');
+  if (savedUser) {
+    playerName = savedUser;
+    document.getElementById('player-name').innerText = 'Гравець: ' + playerName;
+    document.getElementById('logout-button').style.display = 'inline-block';
+    document.getElementById('register-section').style.display = 'none';
+    document.getElementById('login-section').style.display = 'none';
+    if (savedLevel) selectLevel(savedLevel);
+    else showLevelSelection();
+  } else {
     showAuthUI();
   }
+};
 
-  // Реєстрація
-  document.getElementById('registerForm').onsubmit = async function(e) {
-    e.preventDefault();
-    const form = e.target;
-    const body = {
-      username: form.username.value.trim(),
-      email: form.email.value.trim(),
-      password: form.password.value
-    };
-    const regMsg = document.getElementById('reg-msg');
-    regMsg.style.color = 'black';
-    regMsg.innerText = 'Реєстрація...';
-    const res = await fetch('/api/register', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
+function showAuthUI() {
+  document.getElementById('register-section').style.display = 'block';
+  document.getElementById('login-section').style.display = 'block';
+  document.getElementById('logout-button').style.display = 'none';
+  document.getElementById('level-selection').style.display = 'none';
+  document.getElementById('game').style.display = 'none';
+}
+
+function showLevelSelection() {
+  document.getElementById('level-selection').style.display = 'block';
+  document.getElementById('game').style.display = 'none';
+}
+
+function logout() {
+  localStorage.removeItem('taaltoren_username');
+  localStorage.removeItem('taaltoren_activeLevel');
+  playerName = ''; score = 0; activeLevel = null;
+  showAuthUI();
+}
+
+// --- Реєстрація ---
+document.getElementById('registerForm').onsubmit = async function(e) {
+  e.preventDefault();
+  initSpeech();
+  const body = {
+    username: e.target.username.value.trim(),
+    email: e.target.email.value.trim(),
+    password: e.target.password.value
+  };
+  const regMsg = document.getElementById('reg-msg');
+  regMsg.style.color = 'black';
+  regMsg.innerText = 'Реєстрація...';
+  try {
+    const res = await fetch('https://terminusapp.nl/api/register', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(body)
     });
     const data = await res.json();
     if (data.ok) {
       regMsg.style.color = 'green';
       regMsg.innerText = 'Реєстрація успішна! Тепер увійдіть.';
-      setTimeout(() => {
-        document.getElementById('login-username').value = body.username;
-        regMsg.innerText = '';
-      }, 1000);
+      document.getElementById('login-username').value = body.username;
     } else {
       regMsg.style.color = 'red';
       regMsg.innerText = data.msg || 'Помилка реєстрації';
     }
-  };
+  } catch {
+    regMsg.style.color = 'red'; regMsg.innerText = 'Сервер недоступний';
+  }
+};
 
-  // Логін
-  document.getElementById('loginForm').onsubmit = async function(e) {
-    e.preventDefault();
-    const loginMsg = document.getElementById('login-msg');
-    loginMsg.innerText = '';
-    const username = document.getElementById('login-username').value.trim();
-    const password = document.getElementById('login-password').value;
-    if (!username || !password) {
-      loginMsg.innerText = 'Введіть логін та пароль';
-      return;
-    }
-    loginMsg.innerText = 'Перевірка...';
-    const res = await fetch('/api/login', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
+// --- Логін ---
+document.getElementById('loginForm').onsubmit = async function(e) {
+  e.preventDefault();
+  initSpeech();
+  const loginMsg = document.getElementById('login-msg');
+  const username = document.getElementById('login-username').value.trim();
+  const password = document.getElementById('login-password').value;
+  if (!username || !password) { loginMsg.innerText = 'Введіть логін та пароль'; return; }
+  loginMsg.innerText = 'Перевірка...';
+  try {
+    const res = await fetch('https://terminusapp.nl/api/login', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ username, password })
     });
     const data = await res.json();
-    if (!data.ok) {
-      loginMsg.innerText = data.msg || 'Помилка входу';
-      return;
-    }
-    // Успішний вхід
+    if (!data.ok) { loginMsg.innerText = data.msg || 'Помилка входу'; return; }
     playerName = data.user.username;
     scores = { A0: data.user.points || 0, A1: data.user.points || 0, A2: data.user.points || 0 };
     score = data.user.points || 0;
-
     localStorage.setItem('taaltoren_username', playerName);
-
     showLevelSelection();
     document.getElementById('register-section').style.display = 'none';
     document.getElementById('login-section').style.display = 'none';
     document.getElementById('logout-button').style.display = 'inline-block';
     document.getElementById('player-name').innerText = 'Гравець: ' + playerName;
-  };
+  } catch { loginMsg.innerText = 'Сервер недоступний'; }
+};
 
-  // --- Пазл ---
-  const PUZZLE_W = 10, PUZZLE_H = 10;
-  const puzzleImages = [
-    "puzzle1.jpg", "puzzle2.jpg", "puzzle3.jpg",
-    "puzzle4.jpg", "puzzle5.jpg", "puzzle6.jpg"
-  ];
-  let puzzleImg = puzzleImages[0];
-  let puzzleProgress = 0;
+// --- Пазл ---
+const PUZZLE_W = 10, PUZZLE_H = 10;
+const puzzleImages = ["puzzle1.jpg","puzzle2.jpg","puzzle3.jpg","puzzle4.jpg","puzzle5.jpg","puzzle6.jpg"];
+let puzzleImg = puzzleImages[0], puzzleProgress = 0;
 
-  function renderPuzzle() {
-    const canvas = document.getElementById('puzzle-canvas');
-    if (!canvas) return;
-    canvas.innerHTML = '';
-    let frag = 0;
-    for (let y = 0; y < PUZZLE_H; y++) {
-      for (let x = 0; x < PUZZLE_W; x++) {
-        const div = document.createElement('div');
-        div.className = 'puzzle-fragment' + (frag < puzzleProgress ? ' open' : '');
-        div.style.backgroundImage = `url('${puzzleImg}')`;
-        div.style.backgroundPosition = `-${x*32}px -${y*20}px`;
-        canvas.appendChild(div);
-        frag++;
-      }
+function renderPuzzle() {
+  const canvas = document.getElementById('puzzle-canvas');
+  canvas.innerHTML = '';
+  let frag = 0;
+  for (let y=0; y<PUZZLE_H; y++) {
+    for (let x=0; x<PUZZLE_W; x++) {
+      const div = document.createElement('div');
+      div.className = 'puzzle-fragment' + (frag < puzzleProgress ? ' open' : '');
+      div.style.backgroundImage = `url('${puzzleImg}')`;
+      div.style.backgroundPosition = `-${x*32}px -${y*20}px`;
+      canvas.appendChild(div); frag++;
     }
   }
+}
 
-  // --- Гра ---
-  function selectLevel(level) {
-    activeLevel = level;
-    score = scores[activeLevel] || 0;
-    localStorage.setItem('taaltoren_activeLevel', activeLevel);
+function selectLevel(level) {
+  activeLevel = level; score = scores[activeLevel] || 0;
+  localStorage.setItem('taaltoren_activeLevel', activeLevel);
+  document.getElementById('level-selection').style.display = 'none';
+  document.getElementById('game').style.display = 'block';
+  document.getElementById('level-display').innerText = 'Рівень: ' + activeLevel;
+  document.getElementById('score-display').innerText = 'Очки: ' + score;
+  wrongStreak = 0; puzzleImg = puzzleImages[Math.floor(Math.random()*puzzleImages.length)];
+  puzzleProgress = 0; renderPuzzle();
+  const csvFile = level==='A0' ? 'words.csv' : level==='A1' ? 'words2.csv' : 'words3.csv';
+  loadCSV(csvFile);
+}
 
-    document.getElementById('level-selection').style.display = 'none';
-    document.getElementById('game').style.display = 'block';
-    document.getElementById('level-display').innerText = 'Рівень: ' + activeLevel;
-    document.getElementById('score-display').innerText = 'Очки: ' + score;
-
-    wrongStreak = 0;
-    puzzleImg = puzzleImages[Math.floor(Math.random() * puzzleImages.length)];
-    puzzleProgress = 0;
-    renderPuzzle();
-
-    const csvFile = level === 'A0' ? 'words.csv' : level === 'A1' ? 'words2.csv' : 'words3.csv';
-    loadCSV(csvFile);
-  }
-
-  function loadCSV(file) {
-    fetch(file)
-      .then(res => res.text())
-      .then(text => {
-        const lines = text.trim().split('\n');
-        currentCSV = lines.map(line => {
-          const parts = line.split(',');
-          return { ua: parts[0].trim(), nl: parts[1].trim() };
-        });
-        shuffle(currentCSV);
-        usedWords = [];
-        showNextWord();
-      });
-  }
-
-  function showNextWord() {
-    const availableWords = currentCSV.filter(w => !usedWords.includes(w.nl));
-    if (availableWords.length === 0) return;
-    const word = availableWords[Math.floor(Math.random() * availableWords.length)];
-
-    document.getElementById('question').innerHTML =
-      `Перекласти: ${word.ua} <button onclick="speakText('${word.nl}', 'nl-NL')" style="font-size:18px; margin-left:5px;">🔊</button>`;
-
-    const correct = word.nl;
-    const options = [correct, generateMistake(correct), generateMistake(correct)];
-    shuffle(options);
-
-    const optionsContainer = document.getElementById('options');
-    optionsContainer.innerHTML = '';
-    options.forEach(opt => {
-      const btn = document.createElement('button');
-      btn.innerText = opt;
-      btn.className = 'option-button';
-      btn.onclick = () => handleAnswer(btn, opt, correct, word, optionsContainer);
-      optionsContainer.appendChild(btn);
+function loadCSV(file) {
+  fetch(file).then(res => res.text()).then(text => {
+    const lines = text.trim().split('\n');
+    currentCSV = lines.map(line => {
+      const parts = line.split(',').map(p=>p.trim());
+      return { ua: parts[0], nl: parts[1] };
     });
-  }
+    shuffle(currentCSV); usedWords = []; showNextWord();
+  });
+}
 
-  function handleAnswer(btn, selected, correct, word, optionsContainer) {
-    Array.from(optionsContainer.children).forEach(b => b.disabled = true);
-    if (selected === correct) {
-      btn.classList.add('correct');
-      speakText(correct, 'nl-NL');
-      setTimeout(() => {
-        increaseScore();
-        wrongStreak = 0;
-        usedWords.push(word.nl);
-        puzzleProgress++;
-        renderPuzzle();
-        addBlock(word.nl);
-        showNextWord();
-      }, 1000);
-    } else {
-      btn.classList.add('wrong');
-      Array.from(optionsContainer.children).forEach(b => {
-        if (b.innerText === correct) b.classList.add('correct');
-      });
-      wrongStreak++;
-      let minus = wrongStreak < 3 ? 1 : 2;
-      score = Math.max(0, score - minus);
-      scores[activeLevel] = score;
-      document.getElementById('score-display').innerText = 'Очки: ' + score;
-      if (socket && activeLevel) {
-        socket.emit("sub-block", { user: playerName, level: activeLevel, minus });
-      }
-      setTimeout(() => showNextWord(), 3000);
-    }
-  }
+function showNextWord() {
+  const availableWords = currentCSV.filter(w => !usedWords.includes(w.nl));
+  if (!availableWords.length) return;
+  const word = availableWords[Math.floor(Math.random()*availableWords.length)];
+  document.getElementById('question').innerHTML =
+    `Перекласти: ${word.ua} <button onclick="speakText('${word.nl}', 'nl-NL')" style="font-size:18px; margin-left:5px;">🔊</button>`;
+  const correct = word.nl;
+  const options = [correct, generateMistake(correct), generateMistake(correct)];
+  shuffle(options);
+  const optionsContainer = document.getElementById('options');
+  optionsContainer.innerHTML = '';
+  options.forEach(opt => {
+    const btn = document.createElement('button');
+    btn.innerText = opt; btn.className = 'option-button';
+    btn.onclick = () => handleAnswer(btn,opt,correct,word,optionsContainer);
+    optionsContainer.appendChild(btn);
+  });
+}
 
-  function increaseScore() {
-    score++;
-    scores[activeLevel] = score;
+function handleAnswer(btn, selected, correct, word, container) {
+  Array.from(container.children).forEach(b=>b.disabled=true);
+  if (selected===correct) {
+    btn.classList.add('correct'); speakText(correct, 'nl-NL');
+    setTimeout(()=>{
+      increaseScore(); wrongStreak=0; usedWords.push(word.nl);
+      puzzleProgress++; renderPuzzle(); addBlock(word.nl); showNextWord();
+    }, 1000);
+  } else {
+    btn.classList.add('wrong');
+    Array.from(container.children).forEach(b=>{ if(b.innerText===correct) b.classList.add('correct'); });
+    wrongStreak++; let minus = wrongStreak<3 ? 1 : 2;
+    score = Math.max(0, score-minus); scores[activeLevel] = score;
     document.getElementById('score-display').innerText = 'Очки: ' + score;
+    if (socket && activeLevel) socket.emit("sub-block", { user: playerName, level: activeLevel, minus });
+    setTimeout(()=>showNextWord(), 3000);
   }
+}
 
-  function addBlock(word) {
-    if (socket && activeLevel) {
-      socket.emit("add-block", { user: playerName, word, level: activeLevel });
-    }
-  }
+function increaseScore() { score++; scores[activeLevel]=score;
+  document.getElementById('score-display').innerText = 'Очки: ' + score; }
+function addBlock(word) { if (socket && activeLevel) socket.emit("add-block", { user: playerName, word, level: activeLevel }); }
+function shuffle(a) { for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];} }
+function generateMistake(word) { if(word.length<2) return word+'x'; let arr=word.split(''); let i=Math.floor(Math.random()*(word.length-1)); [arr[i],arr[i+1]]=[arr[i+1],arr[i]]; return arr.join(''); }
+function speakText(text, lang='nl-NL') { if(!window.speechSynthesis) return; let u=new SpeechSynthesisUtterance(text); u.lang=lang; window.speechSynthesis.speak(u); }
 
-  function shuffle(arr) {
-    for (let i = arr.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [arr[i], arr[j]] = [arr[j], arr[i]];
-    }
-  }
+// Таймер бурі
+socket.on("tick", ({ timer }) => { lastServerTimer=timer; lastServerTimeUpdate=Date.now(); });
+setInterval(() => {
+  const elapsed=Math.floor((Date.now()-lastServerTimeUpdate)/1000);
+  const left=Math.max(0,lastServerTimer-elapsed);
+  document.getElementById('storm-timer').innerText = `До бурі: ${String(Math.floor(left/60)).padStart(2,'0')}:${String(left%60).padStart(2,'0')}`;
+}, 1000);
 
-  function generateMistake(word) {
-    if (word.length < 2) return word + 'x';
-    let arr = word.split('');
-    let i = Math.floor(Math.random() * (word.length - 1));
-    [arr[i], arr[i + 1]] = [arr[i + 1], arr[i]];
-    return arr.join('');
-  }
+// Рейтинги
+socket.on("sync", ({ scoresSession, scoresGlobal }) => {
+  allScoresSession=scoresSession||{A0:{},A1:{},A2:{}};
+  allScoresGlobal=scoresGlobal||{A0:{},A1:{},A2:{}};
+  updateTowersAndScores();
+});
 
-  function triggerStorm() {
-    alert("Буря зруйнувала вашу вежу (та пазл)!");
-    puzzleProgress = 0;
-    renderPuzzle();
-    usedWords = [];
-    document.getElementById('storm-timer').innerText = '';
-    // Очищаємо збережений рівень, щоб показати вибір знову
-    localStorage.removeItem('taaltoren_activeLevel');
-    // Показати вибір рівня
-    document.getElementById('game').style.display = 'none';
-    document.getElementById('level-selection').style.display = 'block';
-  }
-
-  function speakText(text, lang='nl-NL') {
-    if (!window.speechSynthesis) return;
-    let utter = new window.SpeechSynthesisUtterance(text);
-    utter.lang = lang;
-    window.speechSynthesis.speak(utter);
-  }
-
-  // --- Таймер бурі ---
-  socket.on("tick", ({ timer }) => {
-    lastServerTimer = timer;
-    lastServerTimeUpdate = Date.now();
-  });
-
-  setInterval(() => {
-    const elapsed = Math.floor((Date.now() - lastServerTimeUpdate) / 1000);
-    const left = Math.max(0, lastServerTimer - elapsed);
-    const timerElem = document.getElementById('storm-timer');
-    if (timerElem) {
-      let min = Math.floor(left / 60);
-      let sec = Math.floor(left % 60);
-      timerElem.innerText = `До бурі: ${min.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`;
-    }
-  }, 1000);
-
-  // --- Синхронізація рейтингів ---
-  socket.on("sync", ({ scoresSession, scoresGlobal }) => {
-    allScoresSession = scoresSession || { A0: {}, A1: {}, A2: {} };
-    allScoresGlobal  = scoresGlobal  || { A0: {}, A1: {}, A2: {} };
-    updateTowersAndScores();
-  });
-
-  function updateTowersAndScores() {
-    const sessionDiv = document.getElementById('session-rating');
-    let lvl = activeLevel || 'A0';
-    let sortedSession = Object.entries(allScoresSession[lvl] || {}).sort((a, b) => b[1] - a[1]);
-    sessionDiv.innerHTML = `<h4>Рейтинг цієї сесії (${lvl})</h4>` +
-      sortedSession.map(([user, sc], idx) =>
-        `<div>${idx + 1}. ${user}: <b>${sc}</b></div>`
-      ).join('');
-
-    const cornerDiv = document.getElementById('global-rating-corner');
-    let sortedGlobal = Object.entries(allScoresGlobal[lvl] || {}).sort((a, b) => b[1] - a[1]);
-    cornerDiv.innerHTML = `<h4 style="margin:0 0 8px 0">Глобальний рейтинг (${lvl})</h4>` +
-      sortedGlobal.map(([user, sc], idx) =>
-        `<div style="font-size:15px">${idx + 1}. ${user}: <b>${sc}</b></div>`
-      ).join('');
-  }
+function updateTowersAndScores() {
+  const lvl = activeLevel || 'A0';
+  const sessionDiv = document.getElementById('session-rating');
+  let sortedSession = Object.entries(allScoresSession[lvl]||{}).sort((a,b)=>b[1]-a[1]);
+  sessionDiv.innerHTML = `<h4>Рейтинг сесії (${lvl})</h4>` + sortedSession.map(([u,s],i)=>`${i+1}. ${u}: <b>${s}</b>`).join('<br>');
+  const cornerDiv = document.getElementById('global-rating-corner');
+  let sortedGlobal = Object.entries(allScoresGlobal[lvl]||{}).sort((a,b)=>b[1]-a[1]);
+  cornerDiv.innerHTML = `<h4>Глобальний рейтинг (${lvl})</h4>` + sortedGlobal.map(([u,s],i)=>`${i+1}. ${u}: <b>${s}</b>`).join('<br>');
+}
 </script>
-
 </body>
 </html>
-
-
