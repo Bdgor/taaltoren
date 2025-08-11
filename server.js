@@ -16,23 +16,31 @@ const app = express();
 const server = http.createServer(app);
 
 // --- CORS тільки для домену/IP ---
-const ALLOWED_ORIGINS = [
+const ALLOWED_ORIGINS = new Set([
   "https://terminusapp.nl",
   "https://www.terminusapp.nl",
   "https://38.180.137.243",
-  "http://38.180.137.243"
-];
+  "http://38.180.137.243",
+]);
 
-app.use(cors({
+const corsOptions = {
   origin: (origin, cb) => {
-    if (!origin || ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
-    return cb(new Error("Not allowed by CORS"), false);
+    if (!origin) return cb(null, true);                 // запити без Origin (сервери/curl)
+    if (ALLOWED_ORIGINS.has(origin)) return cb(null, true);
+    return cb(new Error("Not allowed by CORS"));
   },
-  methods: ["GET","POST","PUT","DELETE"],
-}));
+  methods: ["GET","POST","PUT","DELETE","OPTIONS"],
+  allowedHeaders: ["Content-Type","Authorization"],
+  credentials: true,
+  optionsSuccessStatus: 204,
+};
+
+app.use(cors(corsOptions));
+// коректно відповідаємо на preflight для будь-якого шляху
+app.options("*", cors(corsOptions));
 
 const io = new Server(server, {
-  cors: { origin: ALLOWED_ORIGINS, methods: ["GET","POST"] }
+  cors: { origin: Array.from(ALLOWED_ORIGINS), methods: ["GET","POST"] },
 });
 
 app.use(express.json());
@@ -64,7 +72,10 @@ const storage = multer.diskStorage({
     cb(null, `bg-${Date.now()}${ext}`);
   },
 });
-const upload = multer({ storage });
+const upload = multer({
+  storage,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10 МБ
+});
 
 // =============== ТЕСТ/HEALTH ===============
 app.get("/ping-db", async (_req, res) => {
@@ -125,7 +136,7 @@ app.post("/admin/settings/background", requireAdmin, upload.single("background")
     const publicPath = "/uploads/" + req.file.filename;
     await connection.query("UPDATE settings SET bg_image_url=? WHERE id=1", [publicPath]);
     res.json({ ok: true, bg_image_url: publicPath });
-  } catch {
+  } catch (e) {
     res.status(500).json({ error: "DB error" });
   }
 });
@@ -143,7 +154,7 @@ app.get("/settings/public", async (_req, res) => {
   }
 });
 
-// =============== WORDS CRUD (за потреби) ===============
+// =============== WORDS CRUD ===============
 app.get("/admin/words", requireAdmin, async (req, res) => {
   try {
     const { level } = req.query;
@@ -321,7 +332,7 @@ let scoresGlobal = loadGlobalScores();
 let timer = 900;
 let interval = null;
 
-// >>> ДОДАНО: публічний знімок рейтингу для стартового рендера
+// публічний знімок рейтингу для стартового рендера
 app.get("/scores/public", (_req, res) => {
   res.json({ scoresSession, scoresGlobal, timer });
 });
