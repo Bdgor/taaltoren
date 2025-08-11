@@ -25,7 +25,6 @@ const ALLOWED_ORIGINS = [
 
 app.use(cors({
   origin: (origin, cb) => {
-    // дозволити запити без Origin (curl/сервери) і дозволені домени
     if (!origin || ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
     return cb(new Error("Not allowed by CORS"), false);
   },
@@ -38,7 +37,7 @@ const io = new Server(server, {
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(express.static(path.join(__dirname, "public")));
+app.use(express.static(path.join(__dirname, "public"))); // віддає /uploads теж
 
 // =============== УТИЛІТИ ===============
 function requireAdmin(req, res, next) {
@@ -67,7 +66,7 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 
-// =============== ТЕСТ MySQL ===============
+// =============== ТЕСТ/HEALTH ===============
 app.get("/ping-db", async (_req, res) => {
   try {
     const [rows] = await connection.query("SELECT 1 + 1 AS solution");
@@ -77,7 +76,6 @@ app.get("/ping-db", async (_req, res) => {
   }
 });
 
-// Health для швидкої перевірки
 app.get("/__health", async (_req, res) => {
   try {
     const [r] = await connection.query("SELECT 1 AS ok");
@@ -132,7 +130,7 @@ app.post("/admin/settings/background", requireAdmin, upload.single("background")
   }
 });
 
-// Публічне читання налаштувань
+// Публічне читання налаштувань (для фронту)
 app.get("/settings/public", async (_req, res) => {
   try {
     const [rows] = await connection.query("SELECT theme, bg_image_url FROM settings WHERE id=1");
@@ -145,7 +143,7 @@ app.get("/settings/public", async (_req, res) => {
   }
 });
 
-// =============== АДМІН: WORDS CRUD ===============
+// =============== WORDS CRUD (за потреби) ===============
 app.get("/admin/words", requireAdmin, async (req, res) => {
   try {
     const { level } = req.query;
@@ -282,7 +280,7 @@ app.post("/api/add-points", async (req, res) => {
       return res.status(404).json({ ok: false, msg: "Користувач не знайдений" });
     }
 
-    // Оновлення глобального рейтингу у файлі
+    // Оновити глобальний рейтинг у файлі
     scoresGlobal = loadGlobalScores();
     if (!scoresGlobal[level]) scoresGlobal[level] = {};
     scoresGlobal[level][username] = (scoresGlobal[level][username] || 0) + points;
@@ -323,6 +321,11 @@ let scoresGlobal = loadGlobalScores();
 let timer = 900;
 let interval = null;
 
+// >>> ДОДАНО: публічний знімок рейтингу для стартового рендера
+app.get("/scores/public", (_req, res) => {
+  res.json({ scoresSession, scoresGlobal, timer });
+});
+
 function startTimer() {
   if (interval) return;
   interval = setInterval(() => {
@@ -343,8 +346,7 @@ io.on("connection", (socket) => {
   socket.emit("tick", { timer });
   startTimer();
 
-  socket.on("add-block", async (data) => {
-    const { user, level } = data;
+  socket.on("add-block", async ({ user, level }) => {
     if (!user || !level) return;
 
     if (!scoresSession[level][user]) scoresSession[level][user] = 0;
@@ -362,8 +364,7 @@ io.on("connection", (socket) => {
     io.emit("sync", { scoresSession, scoresGlobal });
   });
 
-  socket.on("sub-block", async (data) => {
-    const { user, level, minus } = data;
+  socket.on("sub-block", async ({ user, level, minus }) => {
     if (!user || !level) return;
 
     let m = Math.abs(Number(minus) || 1);
@@ -381,8 +382,6 @@ io.on("connection", (socket) => {
     saveGlobalScores(scoresGlobal);
     io.emit("sync", { scoresSession, scoresGlobal });
   });
-
-  socket.on("disconnect", () => {});
 });
 
 // =============== ЗАПУСК ===============
