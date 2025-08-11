@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8" />
+  <title>Admin Panel</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;margin:0;background:#f7f7fb}
+    .wrap{max-width:1000px;margin:40px auto;padding:0 16px}
+    .card{background:#fff;border-radius:14px;padding:18px 16px;box-shadow:0 8px 24px rgba(0,0,0,.08);margin-bottom:18px}
+    .row{display:flex;gap:12px;flex-wrap:wrap}
+    input,select,button{font-size:14px;padding:10px;border-radius:10px;border:1px solid #ddd;outline:none}
+    button{border:none;cursor:pointer}
+    .btn{background:#0ea5e9;color:#fff}
+    .btn.secondary{background:#111827;color:#fff}
+    .list{width:100%;border-collapse:collapse;margin-top:10px}
+    .list th,.list td{border-bottom:1px solid #eee;padding:8px 6px;text-align:left}
+    .muted{color:#6b7280}
+    .pill{display:inline-block;padding:2px 8px;border-radius:999px;background:#eef2ff}
+    .preview{width:100%;height:180px;border-radius:12px;background-size:cover;background-position:center; border:1px dashed #ddd}
+    .two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    @media (max-width:768px){.two{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Адмін-панель</h1>
+
+    <div class="card" id="login-card">
+      <h3>Вхід</h3>
+      <div class="row">
+        <input id="admin-password" type="password" placeholder="Адмін-пароль" />
+        <button class="btn" onclick="login()">Увійти</button>
+      </div>
+      <p class="muted">Токен збережеться в browser storage.</p>
+    </div>
+
+    <div class="card" id="settings-card" style="display:none">
+      <h3>Налаштування теми та фону</h3>
+      <div class="two">
+        <div>
+          <h4>Тема</h4>
+          <div class="row">
+            <select id="theme-mode">
+              <option value="light">Світла</option>
+              <option value="dark">Темна</option>
+              <option value="auto">Авто</option>
+            </select>
+            <input id="theme-primary" type="color" value="#0ea5e9" />
+            <button class="btn" onclick="saveTheme()">Зберегти тему</button>
+          </div>
+        </div>
+        <div>
+          <h4>Фонове зображення</h4>
+          <div id="bg-preview" class="preview"></div>
+          <div class="row" style="margin-top:8px">
+            <input id="bg-file" type="file" accept="image/*" />
+            <button class="btn secondary" onclick="uploadBg()">Завантажити фон</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" id="words-card" style="display:none">
+      <h3>Слова (CRUD)</h3>
+      <div class="row">
+        <select id="filter-level" onchange="loadWords()">
+          <option value="">Всі рівні</option>
+          <option value="A0">A0</option>
+          <option value="A1">A1</option>
+          <option value="A2">A2</option>
+        </select>
+        <button class="btn" onclick="loadWords()">Оновити</button>
+      </div>
+
+      <table class="list" id="words-table">
+        <thead>
+          <tr><th>ID</th><th>UA</th><th>NL (вірне)</th><th>помилка1</th><th>помилка2</th><th>Level</th><th></th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+
+      <h4>Додати слово</h4>
+      <div class="row">
+        <input id="w-ua" placeholder="ua" />
+        <input id="w-nlc" placeholder="nl_correct" />
+        <input id="w-nlw1" placeholder="nl_wrong1" />
+        <input id="w-nlw2" placeholder="nl_wrong2" />
+        <select id="w-level"><option>A0</option><option>A1</option><option>A2</option></select>
+        <button class="btn" onclick="addWord()">Додати</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+const $ = sel => document.querySelector(sel);
+const API = {
+  login: "/admin/login",
+  settings: "/admin/settings",
+  saveTheme: "/admin/settings/theme",
+  uploadBg: "/admin/settings/background",
+  words: "/admin/words"
+};
+
+function getToken(){ return localStorage.getItem("admintoken") || ""; }
+function headers(){ return { "Content-Type":"application/json", "Authorization":"Bearer "+getToken() }; }
+
+async function login(){
+  const password = $("#admin-password").value.trim();
+  if(!password) return alert("Введіть пароль");
+  const res = await fetch(API.login, { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ password }) });
+  const data = await res.json();
+  if(!res.ok){ alert(data.error || "Помилка"); return; }
+  localStorage.setItem("admintoken", data.token);
+  $("#login-card").style.display = "none";
+  $("#settings-card").style.display = "";
+  $("#words-card").style.display = "";
+  await loadSettings();
+  await loadWords();
+}
+
+async function loadSettings(){
+  const res = await fetch(API.settings, { headers: { "Authorization":"Bearer "+getToken() } });
+  const data = await res.json();
+  if(!res.ok){ alert(data.error||"Помилка"); return; }
+  const theme = data.theme || { mode:"light", primary:"#0ea5e9" };
+  $("#theme-mode").value = theme.mode || "light";
+  $("#theme-primary").value = theme.primary || "#0ea5e9";
+  if(data.bg_image_url) $("#bg-preview").style.backgroundImage = `url(${data.bg_image_url})`;
+  else $("#bg-preview").style.backgroundImage = "none";
+}
+
+async function saveTheme(){
+  const theme = {
+    mode: $("#theme-mode").value,
+    primary: $("#theme-primary").value
+  };
+  const res = await fetch(API.saveTheme, {
+    method:"PUT",
+    headers: headers(),
+    body: JSON.stringify({ theme })
+  });
+  const data = await res.json();
+  if(!res.ok){ alert(data.error||"Помилка"); return; }
+  alert("Збережено ✔");
+}
+
+async function uploadBg(){
+  const file = $("#bg-file").files[0];
+  if(!file) return alert("Оберіть зображення");
+  const fd = new FormData();
+  fd.append("background", file);
+  const res = await fetch(API.uploadBg, {
+    method:"POST",
+    headers: { "Authorization":"Bearer "+getToken() },
+    body: fd
+  });
+  const data = await res.json();
+  if(!res.ok){ alert(data.error||"Помилка"); return; }
+  $("#bg-preview").style.backgroundImage = `url(${data.bg_image_url})`;
+}
+
+async function loadWords(){
+  const level = $("#filter-level").value;
+  const url = level ? (API.words + "?level=" + encodeURIComponent(level)) : API.words;
+  const res = await fetch(url, { headers: { "Authorization":"Bearer "+getToken() } });
+  const list = await res.json();
+  if(!res.ok){ alert(list.error||"Помилка"); return; }
+  const tbody = $("#words-table tbody");
+  tbody.innerHTML = "";
+  list.forEach(w => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${w.id}</td>
+      <td><input value="${escapeHtml(w.ua)}" data-k="ua"/></td>
+      <td><input value="${escapeHtml(w.nl_correct)}" data-k="nl_correct"/></td>
+      <td><input value="${escapeHtml(w.nl_wrong1)}" data-k="nl_wrong1"/></td>
+      <td><input value="${escapeHtml(w.nl_wrong2)}" data-k="nl_wrong2"/></td>
+      <td>
+        <select data-k="level">
+          <option ${w.level==='A0'?'selected':''}>A0</option>
+          <option ${w.level==='A1'?'selected':''}>A1</option>
+          <option ${w.level==='A2'?'selected':''}>A2</option>
+        </select>
+      </td>
+      <td>
+        <button class="btn" onclick="saveRow(${w.id}, this)">Зберегти</button>
+        <button class="btn secondary" onclick="delRow(${w.id})">Видалити</button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+function rowToPayload(btn){
+  const tr = btn.closest("tr");
+  const get = k => tr.querySelector(`[data-k="${k}"]`).value.trim();
+  return {
+    ua: get("ua"),
+    nl_correct: get("nl_correct"),
+    nl_wrong1: get("nl_wrong1"),
+    nl_wrong2: get("nl_wrong2"),
+    level: tr.querySelector(`[data-k="level"]`).value
+  };
+}
+
+async function saveRow(id, btn){
+  const payload = rowToPayload(btn);
+  const res = await fetch(API.words+"/"+id, {
+    method:"PUT", headers: headers(), body: JSON.stringify(payload)
+  });
+  const data = await res.json();
+  if(!res.ok){ alert(data.error||"Помилка"); return; }
+  alert("Збережено ✔");
+}
+
+async function delRow(id){
+  if(!confirm("Видалити запис #"+id+"?")) return;
+  const res = await fetch(API.words+"/"+id, {
+    method:"DELETE", headers: { "Authorization":"Bearer "+getToken() }
+  });
+  const data = await res.json();
+  if(!res.ok){ alert(data.error||"Помилка"); return; }
+  await loadWords();
+}
+
+async function addWord(){
+  const payload = {
+    ua: $("#w-ua").value.trim(),
+    nl_correct: $("#w-nlc").value.trim(),
+    nl_wrong1: $("#w-nlw1").value.trim(),
+    nl_wrong2: $("#w-nlw2").value.trim(),
+    level: $("#w-level").value
+  };
+  const res = await fetch(API.words, {
+    method:"POST", headers: headers(), body: JSON.stringify(payload)
+  });
+  const data = await res.json();
+  if(!res.ok){ alert(data.error||"Помилка"); return; }
+  $("#w-ua").value = $("#w-nlc").value = $("#w-nlw1").value = $("#w-nlw2").value = "";
+  await loadWords();
+}
+
+function escapeHtml(s){
+  return String(s || "").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
+}
+
+// Автовідкриття, якщо токен є
+window.addEventListener("load", async () => {
+  if(getToken()){
+    $("#login-card").style.display = "none";
+    $("#settings-card").style.display = "";
+    $("#words-card").style.display = "";
+    await loadSettings();
+    await loadWords();
+  }
+});
+</script>
+</body>
+</html>
