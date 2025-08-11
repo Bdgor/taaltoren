@@ -1,4 +1,4 @@
-// server.js (prod, domain-only)
+// server.js (production, domain-only, Android/Capacitor ready)
 require("dotenv").config();
 
 const express = require("express");
@@ -15,39 +15,48 @@ const connection = require("./db");
 const app = express();
 const server = http.createServer(app);
 
-// --- CORS тільки для домену/IP ---
+// --- CORS: дозволені джерела (включно з Capacitor/Ionic локальним вебв’ю) ---
 const ALLOWED_ORIGINS = new Set([
   "https://terminusapp.nl",
   "https://www.terminusapp.nl",
   "https://38.180.137.243",
   "http://38.180.137.243",
+  "capacitor://localhost",
+  "ionic://localhost",
+  "http://localhost",
+  "http://127.0.0.1",
+  "file://"
 ]);
 
 const corsOptions = {
   origin: (origin, cb) => {
-    if (!origin) return cb(null, true);                 // запити без Origin (сервери/curl)
+    // дозволяємо запити без Origin (curl/сервер)
+    if (!origin) return cb(null, true);
     if (ALLOWED_ORIGINS.has(origin)) return cb(null, true);
     return cb(new Error("Not allowed by CORS"));
   },
-  methods: ["GET","POST","PUT","DELETE","OPTIONS"],
-  allowedHeaders: ["Content-Type","Authorization"],
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
   credentials: true,
-  optionsSuccessStatus: 204,
+  optionsSuccessStatus: 204
 };
 
 app.use(cors(corsOptions));
-// коректно відповідаємо на preflight для будь-якого шляху
+// гарантовано відповідаємо на preflight для будь-якого шляху
 app.options("*", cors(corsOptions));
 
 const io = new Server(server, {
-  cors: { origin: Array.from(ALLOWED_ORIGINS), methods: ["GET","POST"] },
+  cors: {
+    origin: Array.from(ALLOWED_ORIGINS),
+    methods: ["GET", "POST"]
+  }
 });
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(express.static(path.join(__dirname, "public"))); // віддає /uploads теж
+app.use(express.static(path.join(__dirname, "public"))); // у т.ч. /uploads
 
-// =============== УТИЛІТИ ===============
+// ===================== УТИЛІТИ =====================
 function requireAdmin(req, res, next) {
   const auth = req.headers.authorization || "";
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
@@ -77,7 +86,7 @@ const upload = multer({
   limits: { fileSize: 10 * 1024 * 1024 }, // 10 МБ
 });
 
-// =============== ТЕСТ/HEALTH ===============
+// ===================== ТЕСТ/HEALTH =====================
 app.get("/ping-db", async (_req, res) => {
   try {
     const [rows] = await connection.query("SELECT 1 + 1 AS solution");
@@ -96,7 +105,7 @@ app.get("/__health", async (_req, res) => {
   }
 });
 
-// =============== АДМІН: ЛОГІН ===============
+// ===================== АДМІН: ЛОГІН =====================
 app.post("/admin/login", (req, res) => {
   const { password } = req.body;
   if (!password) return res.status(400).json({ error: "Password required" });
@@ -107,7 +116,7 @@ app.post("/admin/login", (req, res) => {
   res.json({ token });
 });
 
-// =============== АДМІН: НАЛАШТУВАННЯ (тема/фон) ===============
+// ===================== АДМІН: НАЛАШТУВАННЯ (тема/фон) =====================
 app.get("/admin/settings", requireAdmin, async (_req, res) => {
   try {
     const [rows] = await connection.query("SELECT theme, bg_image_url FROM settings WHERE id=1");
@@ -154,7 +163,7 @@ app.get("/settings/public", async (_req, res) => {
   }
 });
 
-// =============== WORDS CRUD ===============
+// ===================== WORDS CRUD =====================
 app.get("/admin/words", requireAdmin, async (req, res) => {
   try {
     const { level } = req.query;
@@ -213,7 +222,7 @@ app.get("/admin", (_req, res) => {
   res.sendFile(path.join(__dirname, "public", "admin.html"));
 });
 
-// =============== API КОРИСТУВАЧІВ ===============
+// ===================== API КОРИСТУВАЧІВ =====================
 app.get("/api/users", async (_req, res) => {
   try {
     const [results] = await connection.query(
@@ -275,7 +284,7 @@ app.post("/api/login", async (req, res) => {
   }
 });
 
-// =============== API: ДОДАТИ ОЧКИ ===============
+// ===================== API: ДОДАТИ ОЧКИ =====================
 app.post("/api/add-points", async (req, res) => {
   const { username, level, points } = req.body;
   if (!username || !level || typeof points !== "number" || points <= 0) {
@@ -305,7 +314,7 @@ app.post("/api/add-points", async (req, res) => {
   }
 });
 
-// =============== РЕЙТИНГ (файлова частина) ===============
+// ===================== РЕЙТИНГ (файлова частина) =====================
 const GLOBAL_FILE = path.join(__dirname, "global_scores.json");
 
 function loadGlobalScores() {
@@ -351,7 +360,7 @@ function startTimer() {
   }, 1000);
 }
 
-// =============== SOCKET.IO ===============
+// ===================== SOCKET.IO =====================
 io.on("connection", (socket) => {
   socket.emit("sync", { scoresSession, scoresGlobal });
   socket.emit("tick", { timer });
@@ -395,8 +404,9 @@ io.on("connection", (socket) => {
   });
 });
 
-// =============== ЗАПУСК ===============
+// ===================== ЗАПУСК =====================
 const PORT = process.env.PORT || 3000;
+// слухаємо на 0.0.0.0 (обов'язково для зовнішніх підключень)
 server.listen(PORT, "0.0.0.0", () => {
   console.log("Сервер працює на порті " + PORT);
 });
