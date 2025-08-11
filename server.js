@@ -1,4 +1,4 @@
-// server.js (під ключ)
+// server.js (prod, domain-only)
 require("dotenv").config();
 
 const express = require("express");
@@ -10,18 +10,35 @@ const path = require("path");
 const jwt = require("jsonwebtoken");
 const multer = require("multer");
 const bcrypt = require("bcrypt");
-const connection = require("./db"); // твій MySQL pool.promise()
+const connection = require("./db");
 
 const app = express();
 const server = http.createServer(app);
+
+// --- CORS тільки для домену/IP ---
+const ALLOWED_ORIGINS = [
+  "https://terminusapp.nl",
+  "https://www.terminusapp.nl",
+  "https://38.180.137.243",
+  "http://38.180.137.243"
+];
+
+app.use(cors({
+  origin: (origin, cb) => {
+    // дозволити запити без Origin (curl/сервери) і дозволені домени
+    if (!origin || ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
+    return cb(new Error("Not allowed by CORS"), false);
+  },
+  methods: ["GET","POST","PUT","DELETE"],
+}));
+
 const io = new Server(server, {
-  cors: { origin: "*", methods: ["GET", "POST"] }
+  cors: { origin: ALLOWED_ORIGINS, methods: ["GET","POST"] }
 });
 
-app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(express.static(path.join(__dirname, "public"))); // статичні файли (адмінка в public/admin.html)
+app.use(express.static(path.join(__dirname, "public")));
 
 // =============== УТИЛІТИ ===============
 function requireAdmin(req, res, next) {
@@ -32,7 +49,7 @@ function requireAdmin(req, res, next) {
     const payload = jwt.verify(token, process.env.ADMIN_JWT_SECRET);
     if (payload.role !== "admin") throw new Error("Not admin");
     next();
-  } catch (e) {
+  } catch {
     return res.status(401).json({ error: "Invalid token" });
   }
 }
@@ -42,8 +59,8 @@ const uploadDir = path.join(__dirname, "public", "uploads");
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, uploadDir),
-  filename: (req, file, cb) => {
+  destination: (_req, _file, cb) => cb(null, uploadDir),
+  filename: (_req, file, cb) => {
     const ext = path.extname(file.originalname) || ".png";
     cb(null, `bg-${Date.now()}${ext}`);
   },
@@ -51,12 +68,22 @@ const storage = multer.diskStorage({
 const upload = multer({ storage });
 
 // =============== ТЕСТ MySQL ===============
-app.get("/ping-db", async (req, res) => {
+app.get("/ping-db", async (_req, res) => {
   try {
     const [rows] = await connection.query("SELECT 1 + 1 AS solution");
     res.send("MySQL працює! 1+1=" + rows[0].solution);
   } catch (err) {
     res.status(500).send("Помилка MySQL: " + err.message);
+  }
+});
+
+// Health для швидкої перевірки
+app.get("/__health", async (_req, res) => {
+  try {
+    const [r] = await connection.query("SELECT 1 AS ok");
+    res.json({ ok: true, db: r[0]?.ok === 1, ts: Date.now() });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
   }
 });
 
@@ -72,15 +99,14 @@ app.post("/admin/login", (req, res) => {
 });
 
 // =============== АДМІН: НАЛАШТУВАННЯ (тема/фон) ===============
-app.get("/admin/settings", requireAdmin, async (req, res) => {
+app.get("/admin/settings", requireAdmin, async (_req, res) => {
   try {
     const [rows] = await connection.query("SELECT theme, bg_image_url FROM settings WHERE id=1");
     const row = rows[0] || {};
-    res.json({
-      theme: row.theme ? JSON.parse(row.theme) : { mode: "light", primary: "#0ea5e9" },
-      bg_image_url: row.bg_image_url || null,
-    });
-  } catch (err) {
+    let theme = { mode: "light", primary: "#0ea5e9" };
+    try { if (row.theme) theme = JSON.parse(row.theme); } catch {}
+    res.json({ theme, bg_image_url: row.bg_image_url || null });
+  } catch {
     res.status(500).json({ error: "DB error" });
   }
 });
@@ -90,7 +116,7 @@ app.put("/admin/settings/theme", requireAdmin, async (req, res) => {
     const theme = req.body.theme || {};
     await connection.query("UPDATE settings SET theme=? WHERE id=1", [JSON.stringify(theme)]);
     res.json({ ok: true });
-  } catch (err) {
+  } catch {
     res.status(500).json({ error: "DB error" });
   }
 });
@@ -101,36 +127,34 @@ app.post("/admin/settings/background", requireAdmin, upload.single("background")
     const publicPath = "/uploads/" + req.file.filename;
     await connection.query("UPDATE settings SET bg_image_url=? WHERE id=1", [publicPath]);
     res.json({ ok: true, bg_image_url: publicPath });
-  } catch (err) {
+  } catch {
     res.status(500).json({ error: "DB error" });
   }
 });
 
-// Публічне читання налаштувань (без токена) — щоб гра могла підтягувати тему/фон
-app.get("/settings/public", async (req, res) => {
+// Публічне читання налаштувань
+app.get("/settings/public", async (_req, res) => {
   try {
     const [rows] = await connection.query("SELECT theme, bg_image_url FROM settings WHERE id=1");
     const row = rows[0] || {};
-    res.json({
-      theme: row.theme ? JSON.parse(row.theme) : { mode: "light", primary: "#0ea5e9" },
-      bg_image_url: row.bg_image_url || null,
-    });
-  } catch (err) {
+    let theme = { mode: "light", primary: "#0ea5e9" };
+    try { if (row.theme) theme = JSON.parse(row.theme); } catch {}
+    res.json({ theme, bg_image_url: row.bg_image_url || null });
+  } catch {
     res.status(500).json({ error: "DB error" });
   }
 });
 
-// =============== АДМІН: WORDS CRUD (за потреби) ===============
+// =============== АДМІН: WORDS CRUD ===============
 app.get("/admin/words", requireAdmin, async (req, res) => {
   try {
     const { level } = req.query;
-    const sql = level
-      ? "SELECT * FROM words WHERE level=? ORDER BY id DESC"
-      : "SELECT * FROM words ORDER BY id DESC";
+    const sql = level ? "SELECT * FROM words WHERE level=? ORDER BY id DESC"
+                      : "SELECT * FROM words ORDER BY id DESC";
     const params = level ? [level] : [];
     const [rows] = await connection.query(sql, params);
     res.json(rows);
-  } catch (err) {
+  } catch {
     res.status(500).json({ error: "DB error" });
   }
 });
@@ -146,7 +170,7 @@ app.post("/admin/words", requireAdmin, async (req, res) => {
       [ua, nl_correct, nl_wrong1, nl_wrong2, level || "A0"]
     );
     res.json({ ok: true, id: result.insertId });
-  } catch (err) {
+  } catch {
     res.status(500).json({ error: "DB error" });
   }
 });
@@ -160,7 +184,7 @@ app.put("/admin/words/:id", requireAdmin, async (req, res) => {
       [ua, nl_correct, nl_wrong1, nl_wrong2, level || "A0", id]
     );
     res.json({ ok: true });
-  } catch (err) {
+  } catch {
     res.status(500).json({ error: "DB error" });
   }
 });
@@ -170,24 +194,24 @@ app.delete("/admin/words/:id", requireAdmin, async (req, res) => {
     const { id } = req.params;
     await connection.query("DELETE FROM words WHERE id=?", [id]);
     res.json({ ok: true });
-  } catch (err) {
+  } catch {
     res.status(500).json({ error: "DB error" });
   }
 });
 
 // Сторінка адмінки
-app.get("/admin", (req, res) => {
+app.get("/admin", (_req, res) => {
   res.sendFile(path.join(__dirname, "public", "admin.html"));
 });
 
 // =============== API КОРИСТУВАЧІВ ===============
-app.get("/api/users", async (req, res) => {
+app.get("/api/users", async (_req, res) => {
   try {
     const [results] = await connection.query(
       "SELECT id, username, email, points, created_at FROM users"
     );
     res.json({ ok: true, users: results });
-  } catch (err) {
+  } catch {
     res.status(500).json({ ok: false, msg: "DB error" });
   }
 });
@@ -211,7 +235,7 @@ app.post("/api/register", async (req, res) => {
       [username, email, hashedPassword]
     );
     res.json({ ok: true, msg: "Користувача зареєстровано" });
-  } catch (err) {
+  } catch {
     res.status(500).json({ ok: false, msg: "DB error" });
   }
 });
@@ -237,7 +261,7 @@ app.post("/api/login", async (req, res) => {
       msg: "Вхід успішний",
       user: { id: user.id, username: user.username, email: user.email, points: user.points }
     });
-  } catch (err) {
+  } catch {
     res.status(500).json({ ok: false, msg: "DB error" });
   }
 });
@@ -267,7 +291,7 @@ app.post("/api/add-points", async (req, res) => {
 
     io.emit("sync", { scoresSession, scoresGlobal });
     res.json({ ok: true, msg: `Додано ${points} очок користувачу ${username}` });
-  } catch (err) {
+  } catch {
     res.status(500).json({ ok: false, msg: "Помилка оновлення в базі даних" });
   }
 });
