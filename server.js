@@ -15,40 +15,48 @@ const connection = require("./db");
 const app = express();
 const server = http.createServer(app);
 
-// --- CORS: дозволені джерела (включно з Capacitor/Ionic локальним вебв’ю) ---
-const ALLOWED_ORIGINS = new Set([
-  "https://terminusapp.nl",
-  "https://www.terminusapp.nl",
-  "https://38.180.137.243",
-  "http://38.180.137.243",
-  "capacitor://localhost",
-  "ionic://localhost",
-  "http://localhost",
-  "http://127.0.0.1",
-  "file://"
-]);
+// --- CORS (гнучкий allowlist + лог походження) ---
+const allowlist = [
+  'https://terminusapp.nl',
+  'https://www.terminusapp.nl',
+  'capacitor://localhost',
+  'ionic://localhost',
+  'http://localhost',
+  'http://127.0.0.1'
+];
+
+function isAllowedOrigin(origin) {
+  if (!origin) return true;                       // curl / серверні запити
+  if (allowlist.includes(origin)) return true;
+  if (origin.endsWith('.terminusapp.nl')) return true;         // сабдомени
+  if (/^http:\/\/localhost(:\d+)?$/.test(origin)) return true;  // localhost з портом
+  if (/^capacitor:\/\//.test(origin)) return true;              // всі capacitor://
+  return false;
+}
 
 const corsOptions = {
   origin: (origin, cb) => {
-    // дозволяємо запити без Origin (curl/сервер)
-    if (!origin) return cb(null, true);
-    if (ALLOWED_ORIGINS.has(origin)) return cb(null, true);
-    return cb(new Error("Not allowed by CORS"));
+    if (isAllowedOrigin(origin)) return cb(null, true);
+    console.warn('CORS blocked Origin:', origin); // лог для діагностики
+    return cb(new Error('Not allowed by CORS'));
   },
-  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true,
   optionsSuccessStatus: 204
 };
 
 app.use(cors(corsOptions));
-// гарантовано відповідаємо на preflight для будь-якого шляху
-app.options("*", cors(corsOptions));
+app.options('*', cors(corsOptions));
 
 // Socket.IO з CORS
 const io = new Server(server, {
   cors: {
-    origin: Array.from(ALLOWED_ORIGINS),
+    origin: (origin, cb) => {
+      if (isAllowedOrigin(origin)) return cb(null, true);
+      console.warn('Socket.IO blocked Origin:', origin);
+      return cb(new Error('Not allowed by CORS (socket.io)'));
+    },
     methods: ["GET", "POST"]
   }
 });
@@ -436,3 +444,4 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, "0.0.0.0", () => {
   console.log("Сервер працює на порті " + PORT);
 });
+
