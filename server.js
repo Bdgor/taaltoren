@@ -26,11 +26,20 @@ const allowlist = [
 ];
 
 function isAllowedOrigin(origin) {
-  if (!origin) return true;                       // curl / серверні запити
+  if (!origin) return true;                          // curl / сервер
   if (allowlist.includes(origin)) return true;
-  if (origin.endsWith('.terminusapp.nl')) return true;         // сабдомени
-  if (/^http:\/\/localhost(:\d+)?$/.test(origin)) return true;  // localhost з портом
-  if (/^capacitor:\/\//.test(origin)) return true;              // всі capacitor://
+  if (origin.endsWith('.terminusapp.nl')) return true;          // сабдомени
+
+  // localhost будь-який порт і http/https
+  if (/^https?:\/\/localhost(:\d+)?$/.test(origin)) return true;
+  if (/^https?:\/\/127\.0\.0\.1(:\d+)?$/.test(origin)) return true;
+
+  // Capacitor webview
+  if (/^capacitor:\/\//.test(origin)) return true;
+
+  // (опційно) деякі webview шлють 'null'
+  // if (origin === 'null') return true;
+
   return false;
 }
 
@@ -444,5 +453,6 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, "0.0.0.0", () => {
   console.log("Сервер працює на порті " + PORT);
 });
+
 
 
