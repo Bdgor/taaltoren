@@ -45,6 +45,7 @@ app.use(cors(corsOptions));
 // гарантовано відповідаємо на preflight для будь-якого шляху
 app.options("*", cors(corsOptions));
 
+// Socket.IO з CORS
 const io = new Server(server, {
   cors: {
     origin: Array.from(ALLOWED_ORIGINS),
@@ -52,9 +53,18 @@ const io = new Server(server, {
   }
 });
 
+// Парсери та статика
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, "public"))); // у т.ч. /uploads
+
+// Легке логування кожного HTTP-запиту (допомагає діагностувати з додатку)
+app.use((req, _res, next) => {
+  console.log(
+    `[${new Date().toISOString()}] ${req.method} ${req.path} Origin=${req.headers.origin || "-"} UA=${req.headers["user-agent"] || "-"}`
+  );
+  next();
+});
 
 // ===================== ТЕСТ/HEALTH =====================
 app.get("/ping-db", async (_req, res) => {
@@ -66,8 +76,23 @@ app.get("/ping-db", async (_req, res) => {
   }
 });
 
-// ✅ детальний health (з перевіркою БД)
+// простий health для Android/Capacitor/моніторингу
+app.get("/health", (_req, res) => {
+  res.json({ ok: true, ts: Date.now() });
+});
+
+// детальний health (з перевіркою БД)
 app.get("/healthz", async (_req, res) => {
+  try {
+    const [r] = await connection.query("SELECT 1 AS ok");
+    res.json({ ok: true, db: r[0]?.ok === 1, ts: Date.now() });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// залишаємо твій існуючий для сумісності
+app.get("/__health", async (_req, res) => {
   try {
     const [r] = await connection.query("SELECT 1 AS ok");
     res.json({ ok: true, db: r[0]?.ok === 1, ts: Date.now() });
@@ -99,30 +124,11 @@ const storage = multer.diskStorage({
   filename: (_req, file, cb) => {
     const ext = path.extname(file.originalname) || ".png";
     cb(null, `bg-${Date.now()}${ext}`);
-  },
+  }
 });
 const upload = multer({
   storage,
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10 МБ
-});
-
-// ===================== ТЕСТ/HEALTH =====================
-app.get("/ping-db", async (_req, res) => {
-  try {
-    const [rows] = await connection.query("SELECT 1 + 1 AS solution");
-    res.send("MySQL працює! 1+1=" + rows[0].solution);
-  } catch (err) {
-    res.status(500).send("Помилка MySQL: " + err.message);
-  }
-});
-
-app.get("/__health", async (_req, res) => {
-  try {
-    const [r] = await connection.query("SELECT 1 AS ok");
-    res.json({ ok: true, db: r[0]?.ok === 1, ts: Date.now() });
-  } catch (e) {
-    res.status(500).json({ ok: false, error: e.message });
-  }
+  limits: { fileSize: 10 * 1024 * 1024 } // 10 МБ
 });
 
 // ===================== АДМІН: ЛОГІН =====================
@@ -269,8 +275,8 @@ app.post("/api/register", async (req, res) => {
     }
     const hashedPassword = await bcrypt.hash(password, 10);
     await connection.query(
-      "INSERT INTO users (username, email, password_hash, points) VALUES (?, ?, ?, 0)",
-      [username, email, hashedPassword]
+      "INSERT INTO users (username, email, password_hash, points) VALUES (?, ?, ?, 0)"
+      , [username, email, hashedPassword]
     );
     res.json({ ok: true, msg: "Користувача зареєстровано" });
   } catch {
@@ -430,5 +436,3 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, "0.0.0.0", () => {
   console.log("Сервер працює на порті " + PORT);
 });
-
-
