@@ -66,23 +66,8 @@ app.get("/ping-db", async (_req, res) => {
   }
 });
 
-// ✅ простий health для Android/Capacitor
-app.get("/health", (_req, res) => {
-  res.json({ ok: true, ts: Date.now() });
-});
-
 // ✅ детальний health (з перевіркою БД)
 app.get("/healthz", async (_req, res) => {
-  try {
-    const [r] = await connection.query("SELECT 1 AS ok");
-    res.json({ ok: true, db: r[0]?.ok === 1, ts: Date.now() });
-  } catch (e) {
-    res.status(500).json({ ok: false, error: e.message });
-  }
-});
-
-// твій існуючий варіант теж залишаємо
-app.get("/__health", async (_req, res) => {
   try {
     const [r] = await connection.query("SELECT 1 AS ok");
     res.json({ ok: true, db: r[0]?.ok === 1, ts: Date.now() });
@@ -445,4 +430,5 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, "0.0.0.0", () => {
   console.log("Сервер працює на порті " + PORT);
 });
+
 
