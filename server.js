@@ -56,6 +56,41 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, "public"))); // у т.ч. /uploads
 
+// ===================== ТЕСТ/HEALTH =====================
+app.get("/ping-db", async (_req, res) => {
+  try {
+    const [rows] = await connection.query("SELECT 1 + 1 AS solution");
+    res.send("MySQL працює! 1+1=" + rows[0].solution);
+  } catch (err) {
+    res.status(500).send("Помилка MySQL: " + err.message);
+  }
+});
+
+// ✅ простий health для Android/Capacitor
+app.get("/health", (_req, res) => {
+  res.json({ ok: true, ts: Date.now() });
+});
+
+// ✅ детальний health (з перевіркою БД)
+app.get("/healthz", async (_req, res) => {
+  try {
+    const [r] = await connection.query("SELECT 1 AS ok");
+    res.json({ ok: true, db: r[0]?.ok === 1, ts: Date.now() });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// твій існуючий варіант теж залишаємо
+app.get("/__health", async (_req, res) => {
+  try {
+    const [r] = await connection.query("SELECT 1 AS ok");
+    res.json({ ok: true, db: r[0]?.ok === 1, ts: Date.now() });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
 // ===================== УТИЛІТИ =====================
 function requireAdmin(req, res, next) {
   const auth = req.headers.authorization || "";
@@ -410,3 +445,4 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, "0.0.0.0", () => {
   console.log("Сервер працює на порті " + PORT);
 });
+
