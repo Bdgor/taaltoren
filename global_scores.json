@@ -1,10 +1,12 @@
 {
   "A0": {
-    "Bohdan": 159,
-    "Bdgor": 11,
+    "Bohdan": 166,
+    "Bdgor": 13,
     "Viktor": 81,
     "bodya200587": 5
   },
-  "A1": {},
+  "A1": {
+    "Bohdan": 3
+  },
   "A2": {}
 }
