@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Sentences • Taaltoren</title>
+  <link rel="stylesheet" href="/styles.css"/>
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Arial,sans-serif;padding:16px;max-width:900px;margin:0 auto}
+    .chip{display:inline-block;padding:6px 10px;margin:2px;border:1px solid #ddd;border-radius:999px;cursor:grab}
+    .chips{display:flex;flex-wrap:wrap;gap:8px;border:1px dashed #ddd;padding:10px;border-radius:8px;min-height:48px}
+    .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+    button{padding:8px 12px;border-radius:8px;border:1px solid #ccc;background:#0ea5e9;color:#fff;cursor:pointer}
+    select{padding:8px;border-radius:8px;border:1px solid #ccc}
+    .ok{color:#16a34a}.bad{color:#dc2626}
+  </style>
+</head>
+<body>
+  <h1>Sentences</h1>
+  <div class="row">
+    <label>Level:
+      <select id="level">
+        <option>A1</option><option>A2</option><option>B1</option><option>B2</option><option>C1</option>
+      </select>
+    </label>
+    <button id="btnRandom">Random</button>
+    <button id="btnCheck" disabled>Check</button>
+    <span id="status"></span>
+  </div>
+
+  <h3>Assemble:</h3>
+  <div id="pool" class="chips"></div>
+  <h3>Your answer:</h3>
+  <div id="answer" class="chips"></div>
+
+  <hr/>
+  <details>
+    <summary>Admin – add sentence (використовує x-admin-token)</summary>
+    <div class="row">
+      <input id="newText" type="text" placeholder="Новe речення" style="flex:1;min-width:260px"/>
+      <select id="newLevel"><option>A1</option><option>A2</option><option>B1</option><option>B2</option><option>C1</option></select>
+      <button id="btnAdd">Add</button>
+    </div>
+    <small>Збережи пароль адміна як <code>localStorage.adminToken</code> на сторінці <a href="/admin-plus" target="_blank">/admin-plus</a>.</small>
+  </details>
+
+<script>
+const $ = s => document.querySelector(s);
+const pool = $('#pool'), answer = $('#answer'), levelSel = $('#level'), statusEl = $('#status');
+let correct = null;
+function shuffle(a){ for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; }
+function renderChips(words){
+  pool.innerHTML = ''; answer.innerHTML = '';
+  words.forEach(w=>{ const el=document.createElement('span'); el.className='chip'; el.textContent=w; el.onclick=()=>answer.appendChild(el); pool.appendChild(el); });
+  $('#btnCheck').disabled = false; statusEl.textContent='';
+}
+async function getRandom(){
+  const lvl = levelSel.value;
+  const r = await fetch(`/api/sentences/random?level=${encodeURIComponent(lvl)}`);
+  const j = await r.json();
+  if(!j.ok){ statusEl.textContent='No data'; statusEl.className='bad'; return; }
+  correct = (j.sentence.text||'').trim().replace(/\s+/g,' ');
+  renderChips(shuffle(correct.split(' ').slice()));
+}
+$('#btnRandom').onclick = getRandom;
+$('#btnCheck').onclick = ()=>{
+  const ans = Array.from(answer.querySelectorAll('.chip')).map(x=>x.textContent).join(' ').trim();
+  if(!correct) return;
+  statusEl.textContent = ans===correct ? 'Correct!' : 'Try again';
+  statusEl.className = ans===correct ? 'ok' : 'bad';
+};
+$('#btnAdd').onclick = async ()=>{
+  const text = $('#newText').value.trim();
+  const lvl  = $('#newLevel').value;
+  if(!text) return alert('Введи речення');
+  const headers = {'Content-Type':'application/json'};
+  const tok = localStorage.getItem('adminToken') || '';
+  if (tok) headers['x-admin-token'] = tok;
+  const r = await fetch('/api/sentences', { method:'POST', headers, body: JSON.stringify({ text, level:lvl }) });
+  const j = await r.json();
+  if(j.ok){ alert('Added #' + j.id); $('#newText').value=''; } else { alert(j.msg||'Error'); }
+};
+</script>
+</body>
+</html>

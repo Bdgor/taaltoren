@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Dialogues • Taaltoren</title>
+  <link rel="stylesheet" href="/styles.css"/>
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Arial,sans-serif;padding:16px;max-width:900px;margin:0 auto}
+    textarea,input,select{padding:8px;border-radius:8px;border:1px solid #ccc}
+    button{padding:8px 12px;border-radius:8px;border:1px solid #ccc;background:#0ea5e9;color:#fff;cursor:pointer}
+    .card{border:1px solid #e5e7eb;border-radius:12px;padding:12px;margin:8px 0}
+  </style>
+</head>
+<body>
+  <h1>Dialogues</h1>
+
+  <section class="card">
+    <h3>List</h3>
+    <div id="list"></div>
+  </section>
+
+  <section class="card">
+    <h3>View</h3>
+    <input id="dlgId" type="number" placeholder="ID" style="width:120px"/>
+    <button id="btnLoad">Load</button>
+    <div id="view"></div>
+  </section>
+
+  <section class="card">
+    <h3>Admin – create/update</h3>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <input id="aId" type="number" placeholder="(optional) ID to update" style="width:160px"/>
+      <input id="aTitle" type="text" placeholder="Title" style="flex:1;min-width:260px"/>
+      <select id="aLevel"><option>A1</option><option>A2</option><option>B1</option><option>B2</option><option>C1</option></select>
+    </div>
+    <p>Body (JSON): [{"role":"A","text":"Hallo!"},{"role":"B","text":"Hoi!"}]</p>
+    <textarea id="aBody" rows="6" style="width:100%"></textarea><br/>
+    <button id="btnSave">Save</button>
+  </section>
+
+<script>
+async function refreshList(){
+  const r = await fetch('/api/dialogues/list');
+  const j = await r.json();
+  const cont = document.querySelector('#list');
+  if(!j.ok){ cont.textContent='Error'; return; }
+  cont.innerHTML = (j.items||[]).map(x=>`#${x.id} [${x.level}] – ${x.title}`).join('<br/>');
+  if ((j.items||[]).length) document.querySelector('#dlgId').value = j.items[0].id;
+}
+async function loadOne(){
+  const id = Number(document.querySelector('#dlgId').value);
+  if(!id) return;
+  const r = await fetch('/api/dialogues/'+id);
+  const j = await r.json();
+  const view = document.querySelector('#view');
+  if(!j.ok){ view.textContent = j.msg||'Not found'; return; }
+  const turns = j.dialogue.body || [];
+  view.innerHTML = turns.map(t => `<div><b>${t.role}:</b> ${t.text}</div>`).join('');
+}
+async function save(){
+  const payload = {
+    id: Number(document.querySelector('#aId').value)||undefined,
+    title: document.querySelector('#aTitle').value.trim(),
+    level: document.querySelector('#aLevel').value,
+    body: (()=>{ try{ return JSON.parse(document.querySelector('#aBody').value||'[]'); }catch(e){ alert('Invalid JSON'); throw e; } })()
+  };
+  const headers = {'Content-Type':'application/json'};
+  const tok = localStorage.getItem('adminToken') || '';
+  if (tok) headers['x-admin-token'] = tok;
+  const r = await fetch('/api/dialogues', { method:'POST', headers, body: JSON.stringify(payload) });
+  const j = await r.json();
+  if(j.ok){ alert('Saved ID '+j.id); refreshList(); }
+  else { alert(j.msg||'Error'); }
+}
+document.querySelector('#btnLoad').onclick = loadOne;
+document.querySelector('#btnSave').onclick = save;
+refreshList();
+</script>
+</body>
+</html>

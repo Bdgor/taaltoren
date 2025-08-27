@@ -1,3 +1,5 @@
+const { dialoguesRouter } = require('./server/routes/dialogues');
+const { sentencesRouter } = require('./server/routes/sentences');
 // server.js (production, domain-only, Android/Capacitor ready)
 require("dotenv").config();
 
@@ -74,6 +76,8 @@ const io = new Server(server, {
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, "public"))); // у т.ч. /uploads
+app.use('/api/dialogues', require('./server/routes/dialogues').dialoguesRouter());
+app.use('/api/sentences', require('./server/routes/sentences').sentencesRouter());
 
 // Легке логування кожного HTTP-запиту (допомагає діагностувати з додатку)
 app.use((req, _res, next) => {
@@ -160,6 +164,9 @@ app.post("/admin/login", (req, res) => {
 });
 
 // ===================== АДМІН: НАЛАШТУВАННЯ (тема/фон) =====================
+app.get('/sentences', (req,res)=>res.sendFile(require('path').join(__dirname,'public','sentences.html')));
+app.get('/dialogues', (req,res)=>res.sendFile(require('path').join(__dirname,'public','dialogues.html')));
+app.get('/admin-plus', (req,res)=>res.sendFile(require('path').join(__dirname,'public','admin_plus.html')));
 app.get("/admin/settings", requireAdmin, async (_req, res) => {
   try {
     const [rows] = await connection.query("SELECT theme, bg_image_url FROM settings WHERE id=1");
@@ -207,6 +214,9 @@ app.get("/settings/public", async (_req, res) => {
 });
 
 // ===================== WORDS CRUD =====================
+app.get('/sentences', (req,res)=>res.sendFile(require('path').join(__dirname,'public','sentences.html')));
+app.get('/dialogues', (req,res)=>res.sendFile(require('path').join(__dirname,'public','dialogues.html')));
+app.get('/admin-plus', (req,res)=>res.sendFile(require('path').join(__dirname,'public','admin_plus.html')));
 app.get("/admin/words", requireAdmin, async (req, res) => {
   try {
     const { level } = req.query;
@@ -261,6 +271,9 @@ app.delete("/admin/words/:id", requireAdmin, async (req, res) => {
 });
 
 // Сторінка адмінки
+app.get('/sentences', (req,res)=>res.sendFile(require('path').join(__dirname,'public','sentences.html')));
+app.get('/dialogues', (req,res)=>res.sendFile(require('path').join(__dirname,'public','dialogues.html')));
+app.get('/admin-plus', (req,res)=>res.sendFile(require('path').join(__dirname,'public','admin_plus.html')));
 app.get("/admin", (_req, res) => {
   res.sendFile(path.join(__dirname, "public", "admin.html"));
 });
