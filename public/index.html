@@ -1,360 +1,64 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="uk">
 <head>
-  <meta charset="UTF-8" />
-  <title>TaalToren Puzzle</title>
-  <link rel="icon" href="/favicon.png" type="image/x-icon" />
-  <link rel="stylesheet" href="style.css" />
-  <script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>maintestapp</title>
+  <link rel="icon" href="/favicon.png" />
+  <link rel="stylesheet" href="/style.css" />
   <style>
-    :root { --primary:#0ea5e9; }
-    body { font-family: Arial, sans-serif; margin:0; }
-    /* плаваюча панель кнопок */
-    .floating-tools{
-      position:fixed; right:12px; bottom:12px; display:flex; flex-direction:column; gap:10px; z-index:1100;
+    :root { --bg1:#0ea5e9; --bg2:#111827; --glass:rgba(255,255,255,.08); --fg:#e5f7ff; }
+    *{box-sizing:border-box} html,body{height:100%;margin:0}
+    body{
+      font:16px/1.6 system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; color:var(--fg);
+      background:
+        radial-gradient(40% 60% at 20% 20%, rgba(14,165,233,.35), transparent 60%),
+        radial-gradient(40% 60% at 80% 80%, rgba(14,165,233,.25), transparent 60%),
+        linear-gradient(135deg,#0b1020,var(--bg2)); overflow:hidden;
     }
-    .fab{
-      width:48px; height:48px; border-radius:50%; border:none; cursor:pointer;
-      background: var(--primary); color:#fff; font-size:22px; box-shadow:0 8px 24px rgba(0,0,0,.15);
+    .center{position:absolute;inset:0;display:grid;place-items:center}
+    .shell{
+      width:clamp(240px,38vw,520px); aspect-ratio:16/9; border-radius:28px; background:var(--glass);
+      border:1px solid rgba(255,255,255,.12); box-shadow:0 10px 40px rgba(0,0,0,.35), inset 0 0 30px rgba(255,255,255,.03);
+      backdrop-filter: blur(10px) saturate(130%); position:relative; overflow:hidden; display:grid; place-items:center;
+      animation:pop .6s ease-out both;
     }
-    /* панель рейтингу (початково схована) */
-    #global-rating-corner{
-      position: fixed; right: 12px; bottom: 72px; background: rgba(255,255,255,0.95);
-      padding: 10px; border-radius: 10px; max-height: 50vh; overflow-y: auto; font-size: 14px;
-      box-shadow:0 8px 24px rgba(0,0,0,.12); display:none; z-index:1050; min-width:240px;
-    }
-    body.dark { color:#e5e7eb; background:#0b0f19; }
-    body.dark #global-rating-corner { background: rgba(15,23,42,0.95); color:#e5e7eb; }
-    .option-row { display:flex; gap:10px; flex-wrap:wrap; }
-    .option-button { padding:8px 12px; font-size:16px; }
-    .correct { background:#a6f3a6; }
-    .wrong { background:#f3a6a6; }
+    .wave{position:absolute;inset:-30% -10%; background:conic-gradient(from 180deg at 50% 50%,
+      rgba(14,165,233,.55), rgba(14,165,233,0) 40%, rgba(14,165,233,.35), rgba(14,165,233,0) 75%);
+      filter:blur(30px); animation:spin 5.5s linear infinite}
+    .logo{position:relative;z-index:2;display:grid;place-items:center;gap:10px;text-align:center}
+    .mark{width:64px;height:64px;border-radius:18px;background:linear-gradient(135deg,#1fb6ff,#18a0fb 40%,#70d7ff);
+      box-shadow:0 12px 24px rgba(24,160,251,.35), inset 0 0 18px rgba(255,255,255,.35); animation:float 2.6s ease-in-out infinite}
+    .brand{font-weight:800;letter-spacing:.2px;opacity:.92} .hint{font-size:13px;opacity:.7}
+    .actions{position:absolute;bottom:16px;left:50%;transform:translateX(-50%);display:flex;gap:10px}
+    .btn{appearance:none;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.06);color:var(--fg);
+      padding:8px 14px;border-radius:999px;cursor:pointer;font-weight:700;font-size:14px;backdrop-filter:blur(6px)}
+    .btn:hover{background:rgba(255,255,255,.12)}
+    .topbadge{position:absolute;top:18px;left:50%;transform:translateX(-50%);font-size:12px;padding:4px 10px;border-radius:999px;
+      border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.06);backdrop-filter:blur(6px)}
+    @keyframes spin{to{transform:rotate(360deg)}} @keyframes pop{0%{transform:scale(.96);opacity:0}100%{transform:scale(1);opacity:1}}
+    @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
   </style>
 </head>
 <body>
-
-<!-- Рейтинг (іконкою відкриваємо) -->
-<div id="global-rating-corner"></div>
-<div class="floating-tools">
-  <button id="toggle-rating" class="fab" title="Рейтинг 🏆">🏆</button>
-  <button id="toggle-speech" class="fab" title="Озвучення">🔊</button>
-  <button id="toggle-theme" class="fab" title="Тема">🌓</button>
-</div>
-
-<!-- Реєстрація -->
-<div id="register-section" style="margin-top: 40px;">
-  <h2>Реєстрація</h2>
-  <form id="registerForm" style="display:flex;flex-direction:column;max-width:320px;gap:10px;">
-    <input type="text" name="username" placeholder="Логін" required />
-    <input type="email" name="email" placeholder="E-mail" required />
-    <input type="password" name="password" placeholder="Пароль" required />
-    <button type="submit">Зареєструватись</button>
-    <div id="reg-msg" style="color:green"></div>
-  </form>
-</div>
-
-<!-- Вхід -->
-<div id="login-section" style="margin-top: 40px; display:none;">
-  <h2>Вхід</h2>
-  <form id="loginForm" style="display:flex;flex-direction:column;max-width:320px;gap:10px;">
-    <input type="text" id="login-username" placeholder="Логін" required />
-    <input type="password" id="login-password" placeholder="Пароль" required />
-    <button type="submit">Увійти</button>
-    <div id="login-msg" style="color:red"></div>
-  </form>
-</div>
-
-<!-- Кнопка виходу -->
-<button id="logout-button" onclick="logout()" style="display:none; margin-top: 20px;">Вийти</button>
-
-<!-- Вибір рівня -->
-<div id="level-selection" style="display: none;">
-  <h2>Виберіть рівень складності</h2>
-  <button onclick="selectLevel('A0')">A0 (🔰 Початковий)</button>
-  <button onclick="selectLevel('A1')">A1 (⚙️ Базовий)</button>
-  <button onclick="selectLevel('A2')">A2 (🔥 Вищий)</button>
-</div>
-
-<!-- Гра -->
-<div id="game" style="display: none;">
-  <div id="puzzle-canvas"></div>
-  <h3 id="level-display"></h3>
-  <p><strong id="player-name"></strong></p>
-  <p id="score-display"></p>
-  <p id="storm-timer"></p>
-  <div id="question"></div>
-  <div id="options" class="option-row"></div>
-  <div id="session-rating"></div>
-</div>
-
-<script>
-/* ---------------- Core state ---------------- */
-let socket = io('https://terminusapp.nl', { transports: ['websocket'], secure: true });
-let allScoresSession = { A0:{}, A1:{}, A2:{} };
-let allScoresGlobal  = { A0:{}, A1:{}, A2:{} };
-let lastServerTimer = 900, lastServerTimeUpdate = Date.now();
-
-let scores = { A0:0, A1:0, A2:0 };
-let activeLevel = null, score = 0, currentCSV = [], usedWords = [];
-let playerName = '', wrongStreak = 0;
-
-let speechReady = false;
-let ttsOn = (localStorage.getItem('tts_on') ?? '1') === '1';   // користувач керує 🔊
-let themeOverride = localStorage.getItem('theme_mode');        // 'light'|'dark'|null
-
-/* ---------------- Settings (theme/bg) ---------------- */
-fetch('/settings/public').then(r=>r.json()).then(cfg=>{
-  // тема з сервера (як дефолт), але користувач може перекрити
-  const serverTheme = cfg.theme || { mode:'light', primary:'#0ea5e9' };
-  const mode = themeOverride || serverTheme.mode || 'light';
-  applyTheme({ mode, primary: serverTheme.primary || '#0ea5e9' });
-
-  // фон
-  if (cfg.bg_image_url) {
-    document.body.style.backgroundImage = `url(${cfg.bg_image_url})`;
-    document.body.style.backgroundSize = 'cover';
-    document.body.style.backgroundPosition = 'center';
-    document.body.style.backgroundAttachment = 'fixed';
-  } else {
-    document.body.style.backgroundImage = 'none';
-  }
-});
-
-/* ---------------- UI toggles ---------------- */
-const btnRating = document.getElementById('toggle-rating');
-const btnSpeech = document.getElementById('toggle-speech');
-const btnTheme  = document.getElementById('toggle-theme');
-const ratingBox = document.getElementById('global-rating-corner');
-
-function setSpeechIcon(){ btnSpeech.textContent = ttsOn ? '🔊' : '🔇'; }
-setSpeechIcon();
-
-btnSpeech.onclick = () => {
-  ttsOn = !ttsOn;
-  localStorage.setItem('tts_on', ttsOn ? '1' : '0');
-  setSpeechIcon();
-};
-
-btnTheme.onclick = () => {
-  const isDark = document.body.classList.toggle('dark');
-  const mode = isDark ? 'dark' : 'light';
-  localStorage.setItem('theme_mode', mode);
-  themeOverride = mode;
-};
-
-let ratingLoadedOnce = false;
-btnRating.onclick = async () => {
-  const visible = ratingBox.style.display === 'block';
-  if (!visible && !ratingLoadedOnce) {
-    try {
-      const data = await fetch('/scores/public').then(r=>r.json());
-      allScoresSession = data.scoresSession || allScoresSession;
-      allScoresGlobal  = data.scoresGlobal  || allScoresGlobal;
-      ratingLoadedOnce = true;
-      updateTowersAndScores();
-    } catch {}
-  }
-  ratingBox.style.display = visible ? 'none' : 'block';
-};
-
-function applyTheme(t){
-  document.documentElement.style.setProperty('--primary', t.primary);
-  document.body.classList.toggle('dark', (t.mode||'light') === 'dark');
-}
-
-/* ---------------- Speech helpers ---------------- */
-function initSpeech(){
-  if (!speechReady && window.speechSynthesis){
-    let u = new SpeechSynthesisUtterance(" ");
-    u.lang = 'nl-NL';
-    window.speechSynthesis.speak(u);
-    speechReady = true;
-  }
-}
-function speakText(text, lang='nl-NL'){
-  if (!ttsOn) return;
-  if (!window.speechSynthesis) return;
-  const u = new SpeechSynthesisUtterance(text);
-  u.lang = lang;
-  window.speechSynthesis.speak(u);
-}
-
-/* ---------------- Auth / load ---------------- */
-window.onload = () => {
-  const savedUser = localStorage.getItem('taaltoren_username');
-  const savedLevel = localStorage.getItem('taaltoren_activeLevel');
-  if (savedUser) {
-    playerName = savedUser;
-    document.getElementById('player-name').innerText = 'Гравець: ' + playerName;
-    document.getElementById('logout-button').style.display = 'inline-block';
-    document.getElementById('register-section').style.display = 'none';
-    document.getElementById('login-section').style.display = 'none';
-    if (savedLevel) selectLevel(savedLevel); else showLevelSelection();
-  } else {
-    showAuthUI();
-  }
-};
-
-function showAuthUI(){
-  document.getElementById('register-section').style.display = 'block';
-  document.getElementById('login-section').style.display = 'block';
-  document.getElementById('logout-button').style.display = 'none';
-  document.getElementById('level-selection').style.display = 'none';
-  document.getElementById('game').style.display = 'none';
-}
-function showLevelSelection(){
-  document.getElementById('level-selection').style.display = 'block';
-  document.getElementById('game').style.display = 'none';
-}
-function logout(){
-  localStorage.removeItem('taaltoren_username');
-  localStorage.removeItem('taaltoren_activeLevel');
-  playerName=''; score=0; activeLevel=null;
-  showAuthUI();
-}
-
-/* ---------------- Register / Login ---------------- */
-document.getElementById('registerForm').onsubmit = async function(e){
-  e.preventDefault(); initSpeech();
-  const body = { username:e.target.username.value.trim(), email:e.target.email.value.trim(), password:e.target.password.value };
-  const msg = document.getElementById('reg-msg');
-  msg.style.color='black'; msg.innerText='Реєстрація...';
-  try{
-    const res = await fetch('https://terminusapp.nl/api/register',{ method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
-    const data = await res.json();
-    if (data.ok){ msg.style.color='green'; msg.innerText='Реєстрація успішна! Тепер увійдіть.'; document.getElementById('login-username').value = body.username; }
-    else { msg.style.color='red'; msg.innerText=data.msg||'Помилка реєстрації'; }
-  }catch{ msg.style.color='red'; msg.innerText='Сервер недоступний'; }
-};
-
-document.getElementById('loginForm').onsubmit = async function(e){
-  e.preventDefault(); initSpeech();
-  const loginMsg = document.getElementById('login-msg');
-  const username = document.getElementById('login-username').value.trim();
-  const password = document.getElementById('login-password').value;
-  if(!username||!password){ loginMsg.innerText='Введіть логін та пароль'; return; }
-  loginMsg.innerText='Перевірка...';
-  try{
-    const res = await fetch('https://terminusapp.nl/api/login',{ method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ username,password }) });
-    const data = await res.json();
-    if (!data.ok){ loginMsg.innerText=data.msg||'Помилка входу'; return; }
-    playerName = data.user.username;
-    scores = { A0:data.user.points||0, A1:data.user.points||0, A2:data.user.points||0 };
-    score = data.user.points||0;
-    localStorage.setItem('taaltoren_username', playerName);
-    showLevelSelection();
-    document.getElementById('register-section').style.display='none';
-    document.getElementById('login-section').style.display='none';
-    document.getElementById('logout-button').style.display='inline-block';
-    document.getElementById('player-name').innerText='Гравець: '+playerName;
-  }catch{ loginMsg.innerText='Сервер недоступний'; }
-};
-
-/* ---------------- Game ---------------- */
-const PUZZLE_W=10, PUZZLE_H=10;
-const puzzleImages=["puzzle1.jpg","puzzle2.jpg","puzzle3.jpg","puzzle4.jpg","puzzle5.jpg","puzzle6.jpg"];
-let puzzleImg=puzzleImages[0], puzzleProgress=0;
-
-function renderPuzzle(){
-  const canvas=document.getElementById('puzzle-canvas'); canvas.innerHTML='';
-  let frag=0;
-  for(let y=0;y<PUZZLE_H;y++){
-    for(let x=0;x<PUZZLE_W;x++){
-      const div=document.createElement('div');
-      div.className='puzzle-fragment'+(frag<puzzleProgress?' open':'');
-      div.style.backgroundImage=`url('${puzzleImg}')`;
-      div.style.backgroundPosition=`-${x*32}px -${y*20}px`;
-      canvas.appendChild(div); frag++;
-    }
-  }
-}
-
-function selectLevel(level){
-  activeLevel=level; score=scores[activeLevel]||0;
-  localStorage.setItem('taaltoren_activeLevel', activeLevel);
-  document.getElementById('level-selection').style.display='none';
-  document.getElementById('game').style.display='block';
-  document.getElementById('level-display').innerText='Рівень: '+activeLevel;
-  document.getElementById('score-display').innerText='Очки: '+score;
-  wrongStreak=0; puzzleImg=puzzleImages[Math.floor(Math.random()*puzzleImages.length)];
-  puzzleProgress=0; renderPuzzle();
-  const csvFile = level==='A0'?'words.csv': level==='A1'?'words2.csv':'words3.csv';
-  loadCSV(csvFile);
-}
-
-function loadCSV(file){
-  fetch(file).then(res=>res.text()).then(text=>{
-    const lines=text.trim().split('\n');
-    currentCSV=lines.map(line=>{ const parts=line.split(',').map(p=>p.trim()); return { ua:parts[0], nl:parts[1] }; });
-    shuffle(currentCSV); usedWords=[]; showNextWord();
-  });
-}
-
-function showNextWord(){
-  const available=currentCSV.filter(w=>!usedWords.includes(w.nl));
-  if(!available.length) return;
-  const word=available[Math.floor(Math.random()*available.length)];
-  document.getElementById('question').innerHTML=
-    `Перекласти: ${word.ua} <button onclick="speakText('${word.nl}','nl-NL')" style="font-size:18px; margin-left:5px;">🔊</button>`;
-  const correct=word.nl;
-  const options=[correct, generateMistake(correct), generateMistake(correct)];
-  shuffle(options);
-  const box=document.getElementById('options'); box.innerHTML='';
-  options.forEach(opt=>{
-    const btn=document.createElement('button');
-    btn.innerText=opt; btn.className='option-button';
-    btn.onclick=()=>handleAnswer(btn,opt,correct,word,box);
-    box.appendChild(btn);
-  });
-}
-
-function handleAnswer(btn, selected, correct, word, container){
-  Array.from(container.children).forEach(b=>b.disabled=true);
-  if(selected===correct){
-    btn.classList.add('correct'); speakText(correct,'nl-NL');
-    setTimeout(()=>{
-      increaseScore(); wrongStreak=0; usedWords.push(word.nl);
-      puzzleProgress++; renderPuzzle(); addBlock(word.nl); showNextWord();
-    },1000);
-  }else{
-    btn.classList.add('wrong');
-    Array.from(container.children).forEach(b=>{ if(b.innerText===correct) b.classList.add('correct'); });
-    wrongStreak++; let minus = wrongStreak<3 ? 1 : 2;
-    score=Math.max(0, score-minus); scores[activeLevel]=score;
-    document.getElementById('score-display').innerText='Очки: '+score;
-    if(socket && activeLevel) socket.emit("sub-block", { user:playerName, level:activeLevel, minus });
-    setTimeout(()=>showNextWord(),3000);
-  }
-}
-
-function increaseScore(){ score++; scores[activeLevel]=score; document.getElementById('score-display').innerText='Очки: '+score; }
-function addBlock(word){ if(socket && activeLevel) socket.emit("add-block",{ user:playerName, word, level:activeLevel }); }
-function shuffle(a){ for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } }
-function generateMistake(word){ if(word.length<2) return word+'x'; let arr=word.split(''); let i=Math.floor(Math.random()*(word.length-1)); [arr[i],arr[i+1]]=[arr[i+1],arr[i]]; return arr.join(''); }
-
-/* ---------------- Timer & Scores ---------------- */
-socket.on("tick", ({timer})=>{ lastServerTimer=timer; lastServerTimeUpdate=Date.now(); });
-setInterval(()=>{
-  const elapsed=Math.floor((Date.now()-lastServerTimeUpdate)/1000);
-  const left=Math.max(0,lastServerTimer-elapsed);
-  document.getElementById('storm-timer').innerText=`До бурі: ${String(Math.floor(left/60)).padStart(2,'0')}:${String(left%60).padStart(2,'0')}`;
-},1000);
-
-socket.on("sync", ({scoresSession, scoresGlobal})=>{
-  allScoresSession=scoresSession||{A0:{},A1:{},A2:{}}; 
-  allScoresGlobal=scoresGlobal||{A0:{},A1:{},A2:{}}; 
-  if (ratingBox.style.display==='block') updateTowersAndScores();
-});
-
-function updateTowersAndScores(){
-  const lvl = activeLevel || 'A0';
-  const sessionDiv=document.getElementById('session-rating');
-  let s1=Object.entries(allScoresSession[lvl]||{}).sort((a,b)=>b[1]-a[1]);
-  sessionDiv.innerHTML = `<h4>Рейтинг сесії (${lvl})</h4>` + s1.map(([u,s],i)=>`${i+1}. ${u}: <b>${s}</b>`).join('<br>');
-  let s2=Object.entries(allScoresGlobal[lvl]||{}).sort((a,b)=>b[1]-a[1]);
-  ratingBox.innerHTML = `<h4>Глобальний рейтинг (${lvl})</h4>` + s2.map(([u,s],i)=>`${i+1}. ${u}: <b>${s}</b>`).join('<br>');
-}
-</script>
-  <script defer src="/feature-tiles.js"></script>
+  <div class="center">
+    <div class="shell" role="region" aria-label="Splash">
+      <div class="topbadge">maintestapp</div>
+      <div class="wave" aria-hidden="true"></div>
+      <div class="logo">
+        <div class="mark" aria-hidden="true"></div>
+        <div class="brand">welcome</div>
+        <div class="hint">оберіть дію нижче</div>
+      </div>
+      <div class="actions">
+        <button class="btn" id="goReg">Sign up</button>
+        <button class="btn" id="goLogin">Log in</button>
+      </div>
+    </div>
+  </div>
+  <script>
+    document.getElementById('goReg').addEventListener('click', ()=> location.href='/register');
+    document.getElementById('goLogin').addEventListener('click', ()=> location.href='/login');
+  </script>
 </body>
 </html>

@@ -1,471 +1,611 @@
-const { dialoguesRouter } = require('./server/routes/dialogues');
-const { sentencesRouter } = require('./server/routes/sentences');
-// server.js (production, domain-only, Android/Capacitor ready)
-require("dotenv").config();
+// server.js — БД, сесії, авторизація, reset password, статика, захист сторінок + ГРА (CSV A0–C1, рейтинг, автомат)
+require('dotenv').config();
 
-const express = require("express");
-const http = require("http");
-const cors = require("cors");
-const { Server } = require("socket.io");
-const fs = require("fs");
-const path = require("path");
-const jwt = require("jsonwebtoken");
-const multer = require("multer");
-const bcrypt = require("bcrypt");
-const connection = require("./db");
+const path = require('path');
+const fs = require('fs');
+const express = require('express');
+const http = require('http');
+const crypto = require('crypto');
+const cors = require('cors');
+const mysql = require('mysql2/promise');
+const bcrypt = require('bcrypt');
+const session = require('express-session');
+const MySQLStoreFactory = require('express-mysql-session');
 
+// ── 1) App & HTTP server
 const app = express();
 const server = http.createServer(app);
 
-// --- CORS (гнучкий allowlist + лог походження) ---
-const allowlist = [
-  'https://terminusapp.nl',
-  'https://www.terminusapp.nl',
-  'capacitor://localhost',
-  'ionic://localhost',
-  'http://localhost',
-  'http://127.0.0.1'
-];
+// ── 2) Middlewares
+app.disable('x-powered-by');
+app.set('trust proxy', 1); // важливо за проксі/HTTPS
 
-function isAllowedOrigin(origin) {
-  if (!origin) return true;                          // curl / сервер
-  if (allowlist.includes(origin)) return true;
-  if (origin.endsWith('.terminusapp.nl')) return true;          // сабдомени
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: false }));
 
-  // localhost будь-який порт і http/https
-  if (/^https?:\/\/localhost(:\d+)?$/.test(origin)) return true;
-  if (/^https?:\/\/127\.0\.0\.1(:\d+)?$/.test(origin)) return true;
-
-  // Capacitor webview
-  if (/^capacitor:\/\//.test(origin)) return true;
-
-  // (опційно) деякі webview шлють 'null'
-  // if (origin === 'null') return true;
-
-  return false;
-}
-
+// CORS
+const ALLOW_ORIGINS = (process.env.CORS_ORIGINS || '*')
+  .split(',').map(s => s.trim()).filter(Boolean);
 const corsOptions = {
   origin: (origin, cb) => {
-    if (isAllowedOrigin(origin)) return cb(null, true);
-    console.warn('CORS blocked Origin:', origin); // лог для діагностики
-    return cb(new Error('Not allowed by CORS'));
+    if (!origin || ALLOW_ORIGINS.includes('*') || ALLOW_ORIGINS.includes(origin)) return cb(null, true);
+    return cb(null, false);
   },
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true,
-  optionsSuccessStatus: 204
+  methods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS'],
+  allowedHeaders: ['Content-Type','Authorization']
 };
-
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
 
-// Socket.IO з CORS
-const io = new Server(server, {
-  cors: {
-    origin: (origin, cb) => {
-      if (isAllowedOrigin(origin)) return cb(null, true);
-      console.warn('Socket.IO blocked Origin:', origin);
-      return cb(new Error('Not allowed by CORS (socket.io)'));
-    },
-    methods: ["GET", "POST"]
-  }
+// ── 3) MySQL pool + session store
+const dbCfg = {
+  host    : process.env.DB_HOST || '127.0.0.1',
+  port    : Number(process.env.DB_PORT || 3306),
+  user    : process.env.DB_USER,
+  password: process.env.DB_PASS,
+  database: process.env.DB_NAME,
+  waitForConnections: true,
+  connectionLimit: 10,
+  queueLimit: 0,
+  charset: 'utf8mb4_general_ci'
+};
+const pool = mysql.createPool(dbCfg);
+
+const MySQLStore = MySQLStoreFactory(session);
+const sessionStore = new MySQLStore({
+  host: dbCfg.host,
+  port: dbCfg.port,
+  user: dbCfg.user,
+  password: dbCfg.password,
+  database: dbCfg.database,
+  clearExpired: true,
+  checkExpirationInterval: 15 * 60 * 1000,
+  expiration: 24 * 60 * 60 * 1000
 });
 
-// Парсери та статика
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-app.use(express.static(path.join(__dirname, "public"))); // у т.ч. /uploads
-app.use('/api/dialogues', require('./server/routes/dialogues').dialoguesRouter());
-app.use('/api/sentences', require('./server/routes/sentences').sentencesRouter());
+const isProd = process.env.NODE_ENV === 'production';
+app.use(session({
+  key: 'tt.sid',
+  secret: process.env.SESSION_SECRET || 'change_me',
+  store: sessionStore,
+  resave: false,
+  saveUninitialized: false,
+  proxy: true,
+  cookie: {
+    httpOnly: true,
+    sameSite: 'lax',              // якщо крос-домен + HTTPS: розглянь 'none' та secure:true
+    secure: !!isProd,             // true у проді з HTTPS
+    maxAge: 24 * 60 * 60 * 1000
+  }
+}));
 
-// Легке логування кожного HTTP-запиту (допомагає діагностувати з додатку)
-app.use((req, _res, next) => {
-  console.log(
-    `[${new Date().toISOString()}] ${req.method} ${req.path} Origin=${req.headers.origin || "-"} UA=${req.headers["user-agent"] || "-"}`
-  );
+// ── 4) Ensure tables (разово на старті; IF NOT EXISTS — безпечно)
+const CREATE_USERS_SQL = `
+CREATE TABLE IF NOT EXISTS users (
+  id            INT AUTO_INCREMENT PRIMARY KEY,
+  email         VARCHAR(190) NOT NULL UNIQUE,
+  password_hash VARCHAR(255) NOT NULL,
+  name          VARCHAR(120) DEFAULT NULL,
+  role          ENUM('user','admin') NOT NULL DEFAULT 'user',
+  is_verified   TINYINT(1) NOT NULL DEFAULT 1,
+  created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_unicode_ci;
+`;
+const CREATE_PASSWORD_RESETS_SQL = `
+CREATE TABLE IF NOT EXISTS password_resets (
+  id          INT AUTO_INCREMENT PRIMARY KEY,
+  email       VARCHAR(190) NOT NULL,
+  token       VARCHAR(128) NOT NULL UNIQUE,
+  created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  expires_at  DATETIME NOT NULL,
+  used        TINYINT(1) NOT NULL DEFAULT 0,
+  INDEX (email),
+  INDEX (token)
+) ENGINE=InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_unicode_ci;
+`;
+const CREATE_USER_STATS_SQL = `
+CREATE TABLE IF NOT EXISTS user_stats (
+  user_id INT PRIMARY KEY,
+  score INT NOT NULL DEFAULT 0,     -- особисті очки (гра слів)
+  total INT NOT NULL DEFAULT 0,     -- загальна сума (глобальний рейтинг)
+  balance INT NOT NULL DEFAULT 0,   -- баланс автомата
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT fk_user_stats_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_unicode_ci;
+`;
+const CREATE_GAME_ROUNDS_SQL = `
+CREATE TABLE IF NOT EXISTS game_rounds (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  user_id INT NOT NULL,
+  bet INT NOT NULL,
+  outcome ENUM('win','lose','none') NOT NULL DEFAULT 'none',
+  prize INT NOT NULL DEFAULT 0,
+  reels VARCHAR(64) NOT NULL,
+  delta INT NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_game_rounds_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  INDEX(user_id), INDEX(created_at)
+) ENGINE=InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_unicode_ci;
+`;
+
+async function ensureTables(){
+  await pool.query(CREATE_USERS_SQL);
+  await pool.query(CREATE_PASSWORD_RESETS_SQL);
+  await pool.query(CREATE_USER_STATS_SQL);
+  await pool.query(CREATE_GAME_ROUNDS_SQL);
+}
+ensureTables().catch(e => { console.error('[DB] Ensure tables failed:', e); process.exit(1); });
+
+// ── 5) Health
+app.get('/api/health/db', async (_req, res) => {
+  try {
+    const [r] = await pool.query('SELECT 1 AS ok');
+    const [t] = await pool.query("SHOW TABLES LIKE 'users'");
+    res.json({ ok: true, db: r?.[0]?.ok === 1, usersTable: t.length > 0 });
+  } catch (e) {
+    res.status(500).json({ ok:false, error:'db_failed', detail:String(e.message||e) });
+  }
+});
+app.get('/api/health/app', (_req, res) => {
+  res.json({ ok:true, uptime: process.uptime(), time: new Date().toISOString() });
+});
+
+// ── 6) Auth helpers
+function requireAuth(req, res, next) {
+  if (req.session?.user) return next();
+  if (req.accepts('json') && !req.accepts('html')) {
+    return res.status(401).json({ ok:false, error:'unauthorized' });
+  }
+  return res.redirect('/login');
+}
+function authOnly(req,res,next){ return req.session?.user ? next() : res.status(401).json({ ok:false, error:'unauthorized' }); }
+async function getOrCreateStats(userId){
+  const [r] = await pool.query('SELECT * FROM user_stats WHERE user_id=? LIMIT 1',[userId]);
+  if (r.length) return r[0];
+  await pool.query('INSERT INTO user_stats (user_id) VALUES (?)',[userId]);
+  const [r2] = await pool.query('SELECT * FROM user_stats WHERE user_id=? LIMIT 1',[userId]);
+  return r2[0];
+}
+
+// ── 7) Protected pages (перехопити ДО статики)
+const PROTECTED_PAGES = new Set([
+  '/home.html',
+  '/words-levels.html',
+  '/words.html',
+  '/sentences.html',
+  '/dialogs.html',
+  '/tests.html',
+  '/game-words.html',
+  '/leaderboard.html'
+]);
+app.use((req, res, next) => {
+  if (req.method === 'GET' && PROTECTED_PAGES.has(req.path)) {
+    return requireAuth(req, res, next);
+  }
   next();
 });
 
-// ===================== ТЕСТ/HEALTH =====================
-app.get("/ping-db", async (_req, res) => {
+// ── 8) Auth API
+app.post('/api/register', async (req, res) => {
   try {
-    const [rows] = await connection.query("SELECT 1 + 1 AS solution");
-    res.send("MySQL працює! 1+1=" + rows[0].solution);
-  } catch (err) {
-    res.status(500).send("Помилка MySQL: " + err.message);
-  }
-});
-
-// простий health для Android/Capacitor/моніторингу
-app.get("/health", (_req, res) => {
-  res.json({ ok: true, ts: Date.now() });
-});
-
-// детальний health (з перевіркою БД)
-app.get("/healthz", async (_req, res) => {
-  try {
-    const [r] = await connection.query("SELECT 1 AS ok");
-    res.json({ ok: true, db: r[0]?.ok === 1, ts: Date.now() });
-  } catch (e) {
-    res.status(500).json({ ok: false, error: e.message });
-  }
-});
-
-// залишаємо твій існуючий для сумісності
-app.get("/__health", async (_req, res) => {
-  try {
-    const [r] = await connection.query("SELECT 1 AS ok");
-    res.json({ ok: true, db: r[0]?.ok === 1, ts: Date.now() });
-  } catch (e) {
-    res.status(500).json({ ok: false, error: e.message });
-  }
-});
-
-// ===================== УТИЛІТИ =====================
-function requireAdmin(req, res, next) {
-  const auth = req.headers.authorization || "";
-  const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
-  if (!token) return res.status(401).json({ error: "No token" });
-  try {
-    const payload = jwt.verify(token, process.env.ADMIN_JWT_SECRET);
-    if (payload.role !== "admin") throw new Error("Not admin");
-    next();
-  } catch {
-    return res.status(401).json({ error: "Invalid token" });
-  }
-}
-
-// Папка для фонів
-const uploadDir = path.join(__dirname, "public", "uploads");
-if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
-
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, uploadDir),
-  filename: (_req, file, cb) => {
-    const ext = path.extname(file.originalname) || ".png";
-    cb(null, `bg-${Date.now()}${ext}`);
-  }
-});
-const upload = multer({
-  storage,
-  limits: { fileSize: 10 * 1024 * 1024 } // 10 МБ
-});
-
-// ===================== АДМІН: ЛОГІН =====================
-app.post("/admin/login", (req, res) => {
-  const { password } = req.body;
-  if (!password) return res.status(400).json({ error: "Password required" });
-  if (password !== process.env.ADMIN_PASSWORD) {
-    return res.status(401).json({ error: "Invalid credentials" });
-  }
-  const token = jwt.sign({ role: "admin" }, process.env.ADMIN_JWT_SECRET, { expiresIn: "12h" });
-  res.json({ token });
-});
-
-// ===================== АДМІН: НАЛАШТУВАННЯ (тема/фон) =====================
-app.get('/sentences', (req,res)=>res.sendFile(require('path').join(__dirname,'public','sentences.html')));
-app.get('/dialogues', (req,res)=>res.sendFile(require('path').join(__dirname,'public','dialogues.html')));
-app.get('/admin-plus', (req,res)=>res.sendFile(require('path').join(__dirname,'public','admin_plus.html')));
-app.get("/admin/settings", requireAdmin, async (_req, res) => {
-  try {
-    const [rows] = await connection.query("SELECT theme, bg_image_url FROM settings WHERE id=1");
-    const row = rows[0] || {};
-    let theme = { mode: "light", primary: "#0ea5e9" };
-    try { if (row.theme) theme = JSON.parse(row.theme); } catch {}
-    res.json({ theme, bg_image_url: row.bg_image_url || null });
-  } catch {
-    res.status(500).json({ error: "DB error" });
-  }
-});
-
-app.put("/admin/settings/theme", requireAdmin, async (req, res) => {
-  try {
-    const theme = req.body.theme || {};
-    await connection.query("UPDATE settings SET theme=? WHERE id=1", [JSON.stringify(theme)]);
-    res.json({ ok: true });
-  } catch {
-    res.status(500).json({ error: "DB error" });
-  }
-});
-
-app.post("/admin/settings/background", requireAdmin, upload.single("background"), async (req, res) => {
-  try {
-    if (!req.file) return res.status(400).json({ error: "No file" });
-    const publicPath = "/uploads/" + req.file.filename;
-    await connection.query("UPDATE settings SET bg_image_url=? WHERE id=1", [publicPath]);
-    res.json({ ok: true, bg_image_url: publicPath });
-  } catch (e) {
-    res.status(500).json({ error: "DB error" });
-  }
-});
-
-// Публічне читання налаштувань (для фронту)
-app.get("/settings/public", async (_req, res) => {
-  try {
-    const [rows] = await connection.query("SELECT theme, bg_image_url FROM settings WHERE id=1");
-    const row = rows[0] || {};
-    let theme = { mode: "light", primary: "#0ea5e9" };
-    try { if (row.theme) theme = JSON.parse(row.theme); } catch {}
-    res.json({ theme, bg_image_url: row.bg_image_url || null });
-  } catch {
-    res.status(500).json({ error: "DB error" });
-  }
-});
-
-// ===================== WORDS CRUD =====================
-app.get('/sentences', (req,res)=>res.sendFile(require('path').join(__dirname,'public','sentences.html')));
-app.get('/dialogues', (req,res)=>res.sendFile(require('path').join(__dirname,'public','dialogues.html')));
-app.get('/admin-plus', (req,res)=>res.sendFile(require('path').join(__dirname,'public','admin_plus.html')));
-app.get("/admin/words", requireAdmin, async (req, res) => {
-  try {
-    const { level } = req.query;
-    const sql = level ? "SELECT * FROM words WHERE level=? ORDER BY id DESC"
-                      : "SELECT * FROM words ORDER BY id DESC";
-    const params = level ? [level] : [];
-    const [rows] = await connection.query(sql, params);
-    res.json(rows);
-  } catch {
-    res.status(500).json({ error: "DB error" });
-  }
-});
-
-app.post("/admin/words", requireAdmin, async (req, res) => {
-  try {
-    const { ua, nl_correct, nl_wrong1, nl_wrong2, level } = req.body;
-    if (!ua || !nl_correct || !nl_wrong1 || !nl_wrong2) {
-      return res.status(400).json({ error: "Missing fields" });
+    let { name, email, password, password2 } = req.body || {};
+    email = String(email||'').trim().toLowerCase();
+    if (!email || !password) return res.status(400).json({ ok:false, error:'email_password_required' });
+    if (password2 !== undefined && password2 !== password) {
+      return res.status(400).json({ ok:false, error:'password_mismatch' });
     }
-    const [result] = await connection.query(
-      "INSERT INTO words (ua, nl_correct, nl_wrong1, nl_wrong2, level) VALUES (?,?,?,?,?)",
-      [ua, nl_correct, nl_wrong1, nl_wrong2, level || "A0"]
+    const [ex] = await pool.query('SELECT id FROM users WHERE email=? LIMIT 1', [email]);
+    if (ex.length) return res.status(409).json({ ok:false, error:'email_exists' });
+
+    const hash = await bcrypt.hash(password, 10);
+    await pool.query('INSERT INTO users (email, password_hash, name, role, is_verified) VALUES (?,?,?,?,?)',
+      [email, hash, name || null, 'user', 1]
     );
-    res.json({ ok: true, id: result.insertId });
-  } catch {
-    res.status(500).json({ error: "DB error" });
+    res.json({ ok:true });
+  } catch (e) {
+    console.error('register', e);
+    res.status(500).json({ ok:false, error:'server_error' });
   }
 });
 
-app.put("/admin/words/:id", requireAdmin, async (req, res) => {
+app.post('/api/login', async (req, res) => {
   try {
-    const { id } = req.params;
-    const { ua, nl_correct, nl_wrong1, nl_wrong2, level } = req.body;
-    await connection.query(
-      "UPDATE words SET ua=?, nl_correct=?, nl_wrong1=?, nl_wrong2=?, level=? WHERE id=?",
-      [ua, nl_correct, nl_wrong1, nl_wrong2, level || "A0", id]
+    let { email, password } = req.body || {};
+    email = String(email||'').trim().toLowerCase();
+    if (!email || !password) return res.status(400).json({ ok:false, error:'email_password_required' });
+
+    const [rows] = await pool.query(
+      'SELECT id,email,password_hash,name,role,is_verified FROM users WHERE email=? LIMIT 1',
+      [email]
     );
-    res.json({ ok: true });
-  } catch {
-    res.status(500).json({ error: "DB error" });
+    if (!rows.length) return res.status(401).json({ ok:false, error:'invalid_credentials' });
+
+    const u = rows[0];
+    const ok = await bcrypt.compare(password, u.password_hash);
+    if (!ok) return res.status(401).json({ ok:false, error:'invalid_credentials' });
+    if (!u.is_verified) return res.status(403).json({ ok:false, error:'email_not_verified' });
+
+    req.session.user = { id:u.id, email:u.email, name:u.name, role:u.role };
+    await getOrCreateStats(u.id); // гарантуємо наявність статистики
+    res.json({ ok:true, user: req.session.user });
+  } catch (e) {
+    console.error('login', e);
+    res.status(500).json({ ok:false, error:'server_error' });
   }
 });
 
-app.delete("/admin/words/:id", requireAdmin, async (req, res) => {
+app.post('/api/logout', (req, res) => {
+  req.session?.destroy?.(() => res.json({ ok:true }));
+});
+
+app.get('/api/me', (req, res) => {
+  if (!req.session?.user) return res.status(401).json({ ok:false, error:'unauthorized' });
+  res.json({ ok:true, user: req.session.user });
+});
+
+// ── 9) Password Reset API
+app.post('/api/request-password-reset', async (req, res) => {
   try {
-    const { id } = req.params;
-    await connection.query("DELETE FROM words WHERE id=?", [id]);
-    res.json({ ok: true });
-  } catch {
-    res.status(500).json({ error: "DB error" });
+    let { email } = req.body || {};
+    email = String(email||'').trim().toLowerCase();
+    if (!email) return res.status(400).json({ ok:false, error:'email_required' });
+
+    const [u] = await pool.query('SELECT id FROM users WHERE email=? LIMIT 1', [email]);
+    if (!u.length) return res.json({ ok:true, sent:true }); // не палимо існування
+
+    const token = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 30*60*1000); // 30 хв
+    await pool.query('INSERT INTO password_resets (email, token, expires_at) VALUES (?,?,?)', [email, token, expiresAt]);
+
+    const devPayload = isProd ? {} : { token }; // у DEV повертаємо токен
+    res.json({ ok:true, sent:true, ...devPayload });
+  } catch (e) {
+    console.error('request-password-reset', e);
+    res.status(500).json({ ok:false, error:'server_error' });
   }
 });
 
-// Сторінка адмінки
-app.get('/sentences', (req,res)=>res.sendFile(require('path').join(__dirname,'public','sentences.html')));
-app.get('/dialogues', (req,res)=>res.sendFile(require('path').join(__dirname,'public','dialogues.html')));
-app.get('/admin-plus', (req,res)=>res.sendFile(require('path').join(__dirname,'public','admin_plus.html')));
-app.get("/admin", (_req, res) => {
-  res.sendFile(path.join(__dirname, "public", "admin.html"));
-});
-
-// ===================== API КОРИСТУВАЧІВ =====================
-app.get("/api/users", async (_req, res) => {
+app.post('/api/reset-password', async (req, res) => {
   try {
-    const [results] = await connection.query(
-      "SELECT id, username, email, points, created_at FROM users"
-    );
-    res.json({ ok: true, users: results });
-  } catch {
-    res.status(500).json({ ok: false, msg: "DB error" });
+    const { token, password } = req.body || {};
+    if (!token || !password) return res.status(400).json({ ok:false, error:'token_password_required' });
+
+    const [rows] = await pool.query('SELECT email, expires_at, used FROM password_resets WHERE token=? LIMIT 1',[token]);
+    if (!rows.length) return res.status(400).json({ ok:false, error:'invalid_token' });
+
+    const pr = rows[0];
+    if (pr.used) return res.status(400).json({ ok:false, error:'token_used' });
+    if (new Date(pr.expires_at).getTime() < Date.now()) return res.status(400).json({ ok:false, error:'token_expired' });
+
+    const hash = await bcrypt.hash(password, 10);
+    await pool.query('UPDATE users SET password_hash=? WHERE email=? LIMIT 1', [hash, pr.email]);
+    await pool.query('UPDATE password_resets SET used=1 WHERE token=? LIMIT 1', [token]);
+
+    res.json({ ok:true, changed:true });
+  } catch (e) {
+    console.error('reset-password', e);
+    res.status(500).json({ ok:false, error:'server_error' });
   }
 });
 
-app.post("/api/register", async (req, res) => {
-  const { username, email, password } = req.body;
-  if (!username || !email || !password)
-    return res.status(400).json({ ok: false, msg: "Всі поля обовʼязкові" });
+// ── 10) ГРА “Збірка слів” (CSV A0–C1), рейтинг, автомат
+const DATA_DIR = process.env.WORDS_DIR || path.join(__dirname, 'public', 'data');
+const wordsCache = new Map(); // level -> rows
 
-  try {
-    const [existing] = await connection.query(
-      "SELECT id FROM users WHERE username=? OR email=?",
-      [username, email]
-    );
-    if (existing.length > 0) {
-      return res.status(400).json({ ok: false, msg: "Логін або e-mail вже існує" });
-    }
-    const hashedPassword = await bcrypt.hash(password, 10);
-    await connection.query(
-      "INSERT INTO users (username, email, password_hash, points) VALUES (?, ?, ?, 0)"
-      , [username, email, hashedPassword]
-    );
-    res.json({ ok: true, msg: "Користувача зареєстровано" });
-  } catch {
-    res.status(500).json({ ok: false, msg: "DB error" });
+function loadCsvRows(filePath){
+  const raw = fs.readFileSync(filePath, 'utf8');
+  const lines = raw.split(/\r?\n/).filter(l => l.trim().length);
+  const header = lines.shift();
+  const cols = header.split(',');
+  const idx = {
+    ua : cols.indexOf('ua'),
+    c  : cols.indexOf('nl_correct'),
+    w1 : cols.indexOf('nl_wrong1'),
+    w2 : cols.indexOf('nl_wrong2'),
+  };
+  if (idx.ua<0 || idx.c<0 || idx.w1<0 || idx.w2<0) {
+    throw new Error('CSV header must be: ua,nl_correct,nl_wrong1,nl_wrong2');
   }
-});
-
-app.post("/api/login", async (req, res) => {
-  const { username, password } = req.body;
-  if (!username || !password)
-    return res.status(400).json({ ok: false, msg: "Введіть логін та пароль" });
-
-  try {
-    const [results] = await connection.query(
-      "SELECT * FROM users WHERE username = ?",
-      [username]
-    );
-    if (results.length === 0) return res.status(400).json({ ok: false, msg: "Користувача не знайдено" });
-
-    const user = results[0];
-    const isValid = await bcrypt.compare(password, user.password_hash);
-    if (!isValid) return res.status(400).json({ ok: false, msg: "Невірний пароль" });
-
-    res.json({
-      ok: true,
-      msg: "Вхід успішний",
-      user: { id: user.id, username: user.username, email: user.email, points: user.points }
+  const rows = [];
+  for (const line of lines){
+    const parts = line.split(',');
+    if (parts.length < 4) continue;
+    rows.push({
+      ua: parts[idx.ua].trim(),
+      correct: parts[idx.c].trim(),
+      wrong1: parts[idx.w1].trim(),
+      wrong2: parts[idx.w2].trim(),
     });
-  } catch {
-    res.status(500).json({ ok: false, msg: "DB error" });
+  }
+  return rows;
+}
+function getWordsForLevel(level){
+  const key = (level || 'A0').toUpperCase();
+  if (wordsCache.has(key)) return wordsCache.get(key);
+  const candidates = [
+    path.join(DATA_DIR, `words-${key}.csv`),
+    path.join(DATA_DIR, 'words.csv')
+  ];
+  for (const fp of candidates){
+    if (fs.existsSync(fp)) {
+      const rows = loadCsvRows(fp);
+      wordsCache.set(key, rows);
+      return rows;
+    }
+  }
+  return [];
+}
+function shuffle(arr){ const a=[...arr]; for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; }
+function pickOne(arr){ return arr[Math.floor(Math.random()*arr.length)]; }
+
+// GET /api/words/question?level=A1
+app.get('/api/words/question', authOnly, async (req, res) => {
+  try{
+    const level = String(req.query.level || 'A0').toUpperCase();
+    const rows = getWordsForLevel(level);
+    if (!rows.length) return res.status(404).json({ ok:false, error:'no_words_for_level' });
+
+    const row = pickOne(rows);
+    const options = shuffle([row.correct, row.wrong1, row.wrong2]).map(t => ({ text:t }));
+    const key = Buffer.from(`${row.ua}::${row.correct}`).toString('base64');
+
+    res.json({ ok:true, question: { key, prompt: row.ua, options } });
+  }catch(e){
+    console.error('words/question', e);
+    res.status(500).json({ ok:false, error:'server_error' });
   }
 });
 
-// ===================== API: ДОДАТИ ОЧКИ =====================
-app.post("/api/add-points", async (req, res) => {
-  const { username, level, points } = req.body;
-  if (!username || !level || typeof points !== "number" || points <= 0) {
-    return res.status(400).json({ ok: false, msg: "Неправильні вхідні дані" });
-  }
+// POST /api/words/answer { key, choice, level }
+app.post('/api/words/answer', authOnly, async (req, res) => {
+  try{
+    const userId = req.session.user.id;
+    const { key, choice } = req.body || {};
+    if (!key || !choice) return res.status(400).json({ ok:false, error:'bad_payload' });
 
-  try {
-    const [result] = await connection.query(
-      "UPDATE users SET points = points + ? WHERE username = ?",
-      [points, username]
+    const decoded = Buffer.from(String(key), 'base64').toString('utf8');
+    const [ua, correct] = decoded.split('::');
+    const isCorrect = String(choice).trim() === String(correct).trim();
+
+    const delta = isCorrect ? 1 : -1;
+    await pool.query(
+      'INSERT INTO user_stats (user_id, score) VALUES (?,0) ON DUPLICATE KEY UPDATE score=score+?',
+      [userId, delta]
     );
-    if (result.affectedRows === 0) {
-      return res.status(404).json({ ok: false, msg: "Користувач не знайдений" });
-    }
-
-    // Оновити глобальний рейтинг у файлі
-    scoresGlobal = loadGlobalScores();
-    if (!scoresGlobal[level]) scoresGlobal[level] = {};
-    scoresGlobal[level][username] = (scoresGlobal[level][username] || 0) + points;
-
-    try { saveGlobalScores(scoresGlobal); } catch (e) { console.error("Помилка збереження глобального рейтингу:", e); }
-
-    io.emit("sync", { scoresSession, scoresGlobal });
-    res.json({ ok: true, msg: `Додано ${points} очок користувачу ${username}` });
-  } catch {
-    res.status(500).json({ ok: false, msg: "Помилка оновлення в базі даних" });
+    const [s] = await pool.query('SELECT score,balance,total FROM user_stats WHERE user_id=?',[userId]);
+    res.json({ ok:true, correct: isCorrect, stats: s[0] });
+  }catch(e){
+    console.error('words/answer', e);
+    res.status(500).json({ ok:false, error:'server_error' });
   }
 });
 
-// ===================== РЕЙТИНГ (файлова частина) =====================
-const GLOBAL_FILE = path.join(__dirname, "global_scores.json");
-
-function loadGlobalScores() {
-  try {
-    if (fs.existsSync(GLOBAL_FILE)) {
-      return JSON.parse(fs.readFileSync(GLOBAL_FILE, "utf-8"));
+// Діагностика CSV
+app.get('/api/words/health', authOnly, (req,res)=>{
+  const out = ['A0','A1','A2','B1','B2','C1'].map(lv=>{
+    const file1 = path.join(DATA_DIR, `words-${lv}.csv`);
+    const file2 = path.join(DATA_DIR, 'words.csv');
+    const picked = fs.existsSync(file1) ? file1 : (fs.existsSync(file2) ? file2 : null);
+    let rows=0, error=null;
+    if (picked){
+      try { rows = loadCsvRows(picked).length; } catch(e){ error = String(e.message||e); }
     }
-  } catch (e) {
-    console.error("Помилка читання global_scores.json:", e);
-  }
-  return { A0: {}, A1: {}, A2: {} };
-}
-
-function saveGlobalScores(scoresGlobal) {
-  try {
-    fs.writeFileSync(GLOBAL_FILE, JSON.stringify(scoresGlobal, null, 2), "utf-8");
-  } catch (e) {
-    console.error("Помилка запису global_scores.json:", e);
-  }
-}
-
-let scoresSession = { A0: {}, A1: {}, A2: {} };
-let scoresGlobal = loadGlobalScores();
-let timer = 900;
-let interval = null;
-
-// публічний знімок рейтингу для стартового рендера
-app.get("/scores/public", (_req, res) => {
-  res.json({ scoresSession, scoresGlobal, timer });
-});
-
-function startTimer() {
-  if (interval) return;
-  interval = setInterval(() => {
-    timer--;
-    io.emit("tick", { timer });
-    if (timer <= 0) {
-      scoresSession = { A0: {}, A1: {}, A2: {} };
-      timer = 900;
-      io.emit("clear");
-      io.emit("sync", { scoresSession, scoresGlobal });
-    }
-  }, 1000);
-}
-
-// ===================== SOCKET.IO =====================
-io.on("connection", (socket) => {
-  socket.emit("sync", { scoresSession, scoresGlobal });
-  socket.emit("tick", { timer });
-  startTimer();
-
-  socket.on("add-block", async ({ user, level }) => {
-    if (!user || !level) return;
-
-    if (!scoresSession[level][user]) scoresSession[level][user] = 0;
-    scoresSession[level][user]++;
-    if (!scoresGlobal[level][user]) scoresGlobal[level][user] = 0;
-    scoresGlobal[level][user]++;
-
-    try {
-      await connection.query("UPDATE users SET points = points + 1 WHERE username = ?", [user]);
-    } catch (err) {
-      console.error("MySQL update error:", err);
-    }
-
-    saveGlobalScores(scoresGlobal);
-    io.emit("sync", { scoresSession, scoresGlobal });
+    return { level:lv, file:picked, rows, error };
   });
+  res.json({ ok:true, dataDir: DATA_DIR, levels: out });
+});
 
-  socket.on("sub-block", async ({ user, level, minus }) => {
-    if (!user || !level) return;
+// Баланс/ставка/вивід/рейтинг
+app.get('/api/my-stats', authOnly, async (req,res)=>{
+  const st = await getOrCreateStats(req.session.user.id);
+  res.json({ ok:true, stats: st });
+});
 
-    let m = Math.abs(Number(minus) || 1);
-    if (!scoresSession[level][user]) scoresSession[level][user] = 0;
-    scoresSession[level][user] = Math.max(0, scoresSession[level][user] - m);
-    if (!scoresGlobal[level][user]) scoresGlobal[level][user] = 0;
-    scoresGlobal[level][user] = Math.max(0, scoresGlobal[level][user] - m);
+// deposit: з score -> balance
+app.post('/api/game/deposit', authOnly, async (req,res)=>{
+  try{
+    const userId = req.session.user.id;
+    const amount = Math.max(0, parseInt(req.body?.amount||0));
+    if (amount <= 0) return res.status(400).json({ ok:false, error:'bad_amount' });
 
-    try {
-      await connection.query("UPDATE users SET points = GREATEST(points - ?, 0) WHERE username = ?", [m, user]);
-    } catch (err) {
-      console.error("MySQL update error:", err);
+    const conn = await pool.getConnection();
+    try{
+      await conn.beginTransaction();
+      const [s] = await conn.query('SELECT score,balance FROM user_stats WHERE user_id=? FOR UPDATE',[userId]);
+      const st = s[0] || { score:0, balance:0 };
+      if (st.score < amount) throw new Error('insufficient_score');
+      await conn.query('UPDATE user_stats SET score=score-?, balance=balance+? WHERE user_id=?',[amount, amount, userId]);
+      await conn.commit();
+    }catch(err){ await conn.rollback(); return res.status(400).json({ ok:false, error: err.message }); }
+    finally{ conn.release(); }
+    const [r] = await pool.query('SELECT score,balance,total FROM user_stats WHERE user_id=?',[userId]);
+    res.json({ ok:true, stats:r[0] });
+  }catch(e){ res.status(500).json({ ok:false, error:'server_error' }); }
+});
+
+// withdraw: з balance -> total
+app.post('/api/game/withdraw', authOnly, async (req,res)=>{
+  try{
+    const userId = req.session.user.id;
+    const amount = Math.max(0, parseInt(req.body?.amount||0));
+    if (amount <= 0) return res.status(400).json({ ok:false, error:'bad_amount' });
+
+    const conn = await pool.getConnection();
+    try{
+      await conn.beginTransaction();
+      const [s] = await conn.query('SELECT balance,total FROM user_stats WHERE user_id=? FOR UPDATE',[userId]);
+      const st = s[0] || { balance:0, total:0 };
+      if (st.balance < amount) throw new Error('insufficient_balance');
+      await conn.query('UPDATE user_stats SET total=total+?, balance=balance-? WHERE user_id=?',[amount, amount, userId]);
+      await conn.commit();
+    }catch(err){ await conn.rollback(); return res.status(400).json({ ok:false, error: err.message }); }
+    finally{ conn.release(); }
+    const [r] = await pool.query('SELECT score,balance,total FROM user_stats WHERE user_id=?',[userId]);
+    res.json({ ok:true, stats:r[0] });
+  }catch(e){ res.status(500).json({ ok:false, error:'server_error' }); }
+});
+
+// === SLOT MACHINE CONFIG ===
+const SLOT_SYMBOLS = [
+  'star',    // ⭐
+  'banana',  // 🍌
+  'cherry',  // 🍒
+  'lemon',   // 🍋
+  'grape',   // 🍇
+  'bell',    // 🔔
+  'clover',  // 🍀
+  'gem',     // 💎
+  'seven'    // 7️⃣
+];
+
+// ваги рідкісності (що менша вага — то рідше)
+const SYMBOL_WEIGHTS = {
+  star:   10,
+  banana: 8,
+  cherry: 14,
+  lemon:  14,
+  grape:  14,
+  bell:   8,
+  clover: 8,
+  gem:    6,
+  seven:  2  // дуже рідко
+};
+
+// обчислення призу за правилами
+function payoutFor(reels) {
+  const cnt = reels.reduce((m,s)=> (m[s]=(m[s]||0)+1, m), {});
+  let prize = 0;
+
+  // ⭐ зірочки
+  if (cnt.star === 3) prize = Math.max(prize, 50);
+  else if (cnt.star === 2) prize = Math.max(prize, 10);
+  else if (cnt.star === 1) prize = Math.max(prize, 5);
+
+  // 🍌 банани
+  if (cnt.banana === 3) prize = Math.max(prize, 100);
+  else if (cnt.banana === 2) prize = Math.max(prize, 50);
+  else if (cnt.banana === 1) prize = Math.max(prize, 5);
+
+  // 7️⃣ сімірки
+  if (cnt.seven === 3) prize = Math.max(prize, 200);
+
+  return prize;
+}
+
+// вибір символу з урахуванням ваг
+function weightedPick() {
+  const total = Object.values(SYMBOL_WEIGHTS).reduce((a,b)=>a+b,0);
+  let r = Math.random()*total;
+  for (const s of SLOT_SYMBOLS){
+    r -= SYMBOL_WEIGHTS[s];
+    if (r <= 0) return s;
+  }
+  return SLOT_SYMBOLS[SLOT_SYMBOLS.length-1];
+}
+
+function spinReels() {
+  return [weightedPick(), weightedPick(), weightedPick()];
+}
+
+// === API: PLAY === (мін. ставка 10)
+app.post('/api/game/play', requireAuth, async (req, res) => {
+  try{
+    const userId = req.session.user.id;
+    const bet = Math.max(10, parseInt(req.body?.bet || 0));
+    if (!Number.isFinite(bet) || bet < 10) return res.status(400).json({ ok:false, error:'min_bet_10' });
+
+    // зчитаємо поточний баланс
+    const [s] = await pool.query('SELECT score, balance, total FROM user_stats WHERE user_id=? LIMIT 1', [userId]);
+    if (!s.length) {
+      await pool.query('INSERT INTO user_stats (user_id, score, balance, total) VALUES (?,0,0,0)', [userId]);
+      return res.status(400).json({ ok:false, error:'insufficient_balance' });
     }
+    const stats = s[0];
+    if (Number(stats.balance) < bet) return res.status(400).json({ ok:false, error:'insufficient_balance' });
 
-    saveGlobalScores(scoresGlobal);
-    io.emit("sync", { scoresSession, scoresGlobal });
+    // крутимо
+    const reels = spinReels();
+    const prize = payoutFor(reels); // фіксовані очки за комбінацію
+
+    // списуємо ставку і додаємо приз
+    const delta = -bet + prize;
+    await pool.query('UPDATE user_stats SET balance = balance + ? WHERE user_id=?', [delta, userId]);
+
+    // лог гри (опц.)
+    await pool.query(
+      'INSERT INTO game_rounds (user_id, bet, outcome, prize, reels, delta) VALUES (?,?,?,?,?,?)',
+      [userId, bet, prize>0?'win':(bet>0?'lose':'none'), prize, reels.join(','), delta]
+    );
+
+    // повертаємо свіжі показники
+    const [s2] = await pool.query('SELECT score, balance, total FROM user_stats WHERE user_id=? LIMIT 1', [userId]);
+    const out = s2[0];
+
+    res.json({ ok:true, reels, prize, bet, stats: out });
+  }catch(e){
+    console.error('game/play', e);
+    res.status(500).json({ ok:false, error:'server_error' });
+  }
+});
+
+// Leaderboard: топ-50 по total
+app.get('/api/leaderboard', async (_req,res)=>{
+  try{
+    const [rows] = await pool.query(`
+      SELECT u.id, COALESCE(NULLIF(u.name,''), SUBSTRING_INDEX(u.email,'@',1)) AS name, s.total
+      FROM users u JOIN user_stats s ON s.user_id = u.id
+      ORDER BY s.total DESC, u.id ASC
+      LIMIT 50
+    `);
+    res.json({ ok:true, items: rows });
+  }catch(e){ res.status(500).json({ ok:false, error:'server_error' }); }
+});
+
+// ── 11) Static files
+const PUBLIC_DIR = process.env.PUBLIC_DIR || path.join(__dirname, 'public');
+app.use(express.static(PUBLIC_DIR));
+
+app.get('/ugoda',    (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'privacy.html')));
+app.get('/register', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'register.html')));
+app.get('/login',    (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'login.html')));
+app.get('/reset',    (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'reset.html')));
+
+// ── 12) 404 для API
+app.use('/api', (_req, res) => res.status(404).json({ ok:false, error:'NOT_FOUND' }));
+
+// ── 13) SPA fallback (опц.)
+if (process.env.SPA_INDEX === '1') {
+  const indexFile = path.join(PUBLIC_DIR, 'index.html');
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api')) return next();
+    if (['/login','/register','/ugoda','/privacy.html'].includes(req.path)) return next();
+    res.sendFile(indexFile, err => err && next());
   });
+}
+
+// ── 14) Start
+const PORT = Number(process.env.PORT) || 3001;
+const HOST = process.env.HOST || '0.0.0.0';
+server.listen(PORT, HOST, () => {
+  console.log(`[OK] Server listening on http://${HOST}:${PORT}`);
 });
 
-// ===================== ЗАПУСК =====================
-const PORT = process.env.PORT || 3000;
-// слухаємо на 0.0.0.0 (обов'язково для зовнішніх підключень)
-server.listen(PORT, "0.0.0.0", () => {
-  console.log("Сервер працює на порті " + PORT);
-});
-
-
-
+// ── 15) Graceful shutdown
+function shutdown(sig){
+  console.log(`[${sig}] Shutting down...`);
+  server.close(() => {
+    console.log('HTTP server closed.');
+    process.exit(0);
+  });
+  setTimeout(() => process.exit(0), 5000).unref();
+}
+['SIGINT','SIGTERM'].forEach(s => process.on(s, () => shutdown(s)));

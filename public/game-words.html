@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Збірка слів — Гра</title>
+  <link rel="icon" href="/favicon.png" />
+  <link rel="stylesheet" href="/style.css" />
+  <script>
+  // фронт-захист: редирект на логін, якщо немає сесії
+  (async ()=>{
+    try{
+      const r = await fetch('/api/me', { credentials:'include' });
+      if(!r.ok){ location.href = '/login?next=' + encodeURIComponent(location.pathname); }
+    }catch(e){ location.href = '/login?next=' + encodeURIComponent(location.pathname); }
+  })();
+  </script>
+</head>
+<body class="tt-theme">
+  <div class="tt-wrap sm">
+    <header class="tt-row" style="justify-content:space-between;gap:12px;margin-bottom:12px">
+      <a class="tt-back" href="/home.html">← На головну</a>
+      <div>
+        <h1>Збірка слів</h1>
+        <p class="muted">Обирайте правильне слово із трьох варіантів</p>
+      </div>
+    </header>
+
+    <section class="tt-card">
+      <div class="tt-row" style="gap:8px;align-items:center;margin-bottom:12px">
+        <label for="level">Рівень:</label>
+        <select id="level">
+          <option>A0</option><option>A1</option><option>A2</option>
+          <option>B1</option><option>B2</option><option>C1</option>
+        </select>
+        <button class="tt-btn" id="btnNext">Нове завдання</button>
+      </div>
+
+      <div id="questionBox">
+        <div class="muted">Натисніть «Нове завдання»</div>
+      </div>
+      <div id="feedback" class="muted" style="margin-top:8px"></div>
+    </section>
+
+    <section class="tt-card" style="margin-top:12px">
+      <h3 style="margin-top:0">🎰 Ігровий автомат</h3>
+      <div class="tt-row" style="gap:8px;align-items:center;flex-wrap:wrap">
+        <label for="bet">Ставка (мін. 10):</label>
+        <input id="bet" type="number" min="10" step="1" value="10" style="width:100px" />
+        <button class="tt-btn" id="btnPlay">Грати</button>
+        <input id="depAmt" type="number" min="1" step="1" placeholder="Внести з очок → баланс" style="width:180px" />
+        <button class="tt-btn" id="btnDeposit">Внести</button>
+        <input id="wdAmt" type="number" min="1" step="1" placeholder="Вивести баланс → загальна сума" style="width:220px" />
+        <button class="tt-btn" id="btnWithdraw">Вивести</button>
+      </div>
+      <div id="machineMsg" class="muted" style="margin-top:8px"></div>
+    </section>
+  </div>
+
+  <!-- Бульбашка з рейтингом -->
+  <div class="rating-bubble" id="ratingBubble" title="Ваші очки: особисті/баланс/загальна сума">0 / 0 / 0</div>
+
+  <script type="module" src="/js/game-words.js" defer></script>
+</body>
+</html>

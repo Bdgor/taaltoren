@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Відновлення пароля — maintestapp</title>
+  <link rel="icon" href="/favicon.png" />
+  <link rel="stylesheet" href="/style.css" />
+  <script src="https://www.google.com/recaptcha/api.js?render=6Lfh0c0rAAAAAMX0xOMrdbrP-UHU9RKQSyaG6bgw" defer></script>
+  <script type="module" src="/js/reset.js" defer></script>
+</head>
+<body class="tt-theme">
+  <div class="auth-shell">
+    <div class="auth-card">
+      <header class="auth-header">
+        <div class="brand">maintestapp</div>
+        <a class="link" href="/">На головну</a>
+      </header>
+
+      <main class="auth-main">
+        <h1 class="title">Відновлення пароля</h1>
+
+        <form id="formResetStart" novalidate>
+          <label for="resetEmail">Email</label>
+          <input id="resetEmail" name="email" type="email" required />
+          <div class="row" style="margin-top:12px">
+            <button class="btn" id="btnResetStart" type="submit">Надіслати лист</button>
+          </div>
+          <div id="msgResetStart"></div>
+        </form>
+
+        <hr class="sep">
+
+        <form id="formResetFinish" novalidate>
+          <label for="resetCode">Код/Токен з листа</label>
+          <input id="resetCode" name="token" required />
+
+          <label for="resetNewPass">Новий пароль</label>
+          <input id="resetNewPass" name="password" type="password" minlength="6" required />
+
+          <div class="row" style="margin-top:12px">
+            <button class="btn" id="btnResetFinish" type="submit">Змінити пароль</button>
+            <a class="link" href="/login">Повернутись до входу</a>
+          </div>
+          <div id="msgResetFinish"></div>
+        </form>
+      </main>
+
+      <footer class="auth-footer">
+        <span class="muted"></span>
+        <a class="link" href="/login">Повернутись до входу</a>
+      </footer>
+    </div>
+  </div>
+</body>
+</html>

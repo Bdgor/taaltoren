@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>TaalToren — Рівні слів (A0–C1)</title>
+  <link rel="icon" href="/favicon.png" />
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body class="tt-theme">
+  <div class="tt-wrap sm">
+    <div class="tt-row" style="justify-content:space-between; margin-bottom:16px; gap:12px">
+      <a class="tt-back" href="/home.html" id="btnBack">← На головну</a>
+      <div>
+        <h1>Рівні «Збірки слів»</h1>
+        <p>Оберіть старт, систему можна змінити у будь-який момент.</p>
+      </div>
+    </div>
+
+    <div class="tt-levels" role="list" aria-label="Рівні від A0 до C1">
+      <section class="tt-lvl" role="listitem">
+        <span class="tt-ring" aria-hidden="true"></span>
+        <h3>A0 — Starter</h3>
+        <p>Алфавіт, базові слова, прості фрази.</p>
+        <a class="tt-btn tt-go" href="/words.html?level=A0">Почати A0</a>
+      </section>
+      <section class="tt-lvl" role="listitem">
+        <span class="tt-ring" aria-hidden="true"></span>
+        <h3>A1 — Beginner</h3>
+        <p>Побутові теми, присвійні, прості часи.</p>
+        <a class="tt-btn tt-go" href="/words.html?level=A1">Почати A1</a>
+      </section>
+      <section class="tt-lvl" role="listitem">
+        <span class="tt-ring" aria-hidden="true"></span>
+        <h3>A2 — Elementary</h3>
+        <p>Розширення лексики, регулярні структури.</p>
+        <a class="tt-btn tt-go" href="/words.html?level=A2">Почати A2</a>
+      </section>
+      <section class="tt-lvl" role="listitem">
+        <span class="tt-ring" aria-hidden="true"></span>
+        <h3>B1 — Intermediate</h3>
+        <p>Опис досвіду, плани, більш складні речення.</p>
+        <a class="tt-btn tt-go" href="/words.html?level=B1">Почати B1</a>
+      </section>
+      <section class="tt-lvl" role="listitem">
+        <span class="tt-ring" aria-hidden="true"></span>
+        <h3>B2 — Upper‑Intermediate</h3>
+        <p>Дискусії, нюанси значень, сталі вирази.</p>
+        <a class="tt-btn tt-go" href="/words.html?level=B2">Почати B2</a>
+      </section>
+      <section class="tt-lvl" role="listitem">
+        <span class="tt-ring" aria-hidden="true"></span>
+        <h3>C1 — Advanced</h3>
+        <p>Тонкі стилістичні відтінки, академічна лексика.</p>
+        <a class="tt-btn tt-go" href="/words.html?level=C1">Почати C1</a>
+      </section>
+    </div>
+
+    <div class="tt-footer">Підтримуються параметри: <code>?level=A0|A1|A2|B1|B2|C1</code>. Ваш фронтенд може зчитати <code>level</code> і підвантажити відповідний список слів.</div>
+  </div>
+
+  <script>
+    (function(){
+      const back = document.getElementById('btnBack');
+      if(back){
+        back.addEventListener('click', function(e){
+          if (window.history.length > 1) { e.preventDefault(); history.back(); }
+        });
+      }
+    })();
+  </script>
+</body>
+</html>
